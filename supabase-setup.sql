@@ -1,11 +1,18 @@
+-- Drop existing tables if they exist (in correct order due to foreign key dependencies)
+DROP TABLE IF EXISTS messages CASCADE;
+DROP TABLE IF EXISTS matches CASCADE;
+DROP TABLE IF EXISTS swipes CASCADE;
+DROP TABLE IF EXISTS users CASCADE;
+
 -- Enable PostGIS extension for location queries
 CREATE EXTENSION IF NOT EXISTS postgis;
 
 -- Create users table
-CREATE TABLE users (
+CREATE TABLE IF NOT EXISTS users (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name TEXT NOT NULL,
   age INTEGER NOT NULL CHECK (age >= 18),
+  gender TEXT NOT NULL CHECK (gender IN ('Male', 'Female')),
   festival TEXT NOT NULL,
   ticket_type TEXT NOT NULL,
   accommodation_type TEXT NOT NULL,
@@ -18,7 +25,7 @@ CREATE TABLE users (
 );
 
 -- Create swipes table
-CREATE TABLE swipes (
+CREATE TABLE IF NOT EXISTS swipes (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   swiper_id UUID REFERENCES users(id) ON DELETE CASCADE,
   swiped_id UUID REFERENCES users(id) ON DELETE CASCADE,
@@ -28,7 +35,7 @@ CREATE TABLE swipes (
 );
 
 -- Create matches table
-CREATE TABLE matches (
+CREATE TABLE IF NOT EXISTS matches (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user1_id UUID REFERENCES users(id) ON DELETE CASCADE,
   user2_id UUID REFERENCES users(id) ON DELETE CASCADE,
@@ -38,7 +45,7 @@ CREATE TABLE matches (
 );
 
 -- Create messages table
-CREATE TABLE messages (
+CREATE TABLE IF NOT EXISTS messages (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   match_id UUID REFERENCES matches(id) ON DELETE CASCADE,
   sender_id UUID REFERENCES users(id) ON DELETE CASCADE,
@@ -48,15 +55,18 @@ CREATE TABLE messages (
 );
 
 -- Create indexes for better performance
-CREATE INDEX idx_users_festival ON users(festival);
-CREATE INDEX idx_users_location ON users USING GIST(location);
-CREATE INDEX idx_users_last_active ON users(last_active);
-CREATE INDEX idx_swipes_swiper_id ON swipes(swiper_id);
-CREATE INDEX idx_swipes_swiped_id ON swipes(swiped_id);
-CREATE INDEX idx_matches_user1_id ON matches(user1_id);
-CREATE INDEX idx_matches_user2_id ON matches(user2_id);
-CREATE INDEX idx_messages_match_id ON messages(match_id);
-CREATE INDEX idx_messages_created_at ON messages(created_at);
+CREATE INDEX IF NOT EXISTS idx_users_festival ON users(festival);
+CREATE INDEX IF NOT EXISTS idx_users_location ON users USING GIST(location);
+CREATE INDEX IF NOT EXISTS idx_users_last_active ON users(last_active);
+CREATE INDEX IF NOT EXISTS idx_swipes_swiper_id ON swipes(swiper_id);
+CREATE INDEX IF NOT EXISTS idx_swipes_swiped_id ON swipes(swiped_id);
+CREATE INDEX IF NOT EXISTS idx_matches_user1_id ON matches(user1_id);
+CREATE INDEX IF NOT EXISTS idx_matches_user2_id ON matches(user2_id);
+CREATE INDEX IF NOT EXISTS idx_messages_match_id ON messages(match_id);
+CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages(created_at);
+
+-- Drop existing function if it exists
+DROP FUNCTION IF EXISTS find_nearby_users(DOUBLE PRECISION, DOUBLE PRECISION, DOUBLE PRECISION, INTEGER);
 
 -- Function to find nearby users using PostGIS
 CREATE OR REPLACE FUNCTION find_nearby_users(
@@ -69,6 +79,7 @@ RETURNS TABLE (
   id UUID,
   name TEXT,
   age INTEGER,
+  gender TEXT,
   festival TEXT,
   ticket_type TEXT,
   accommodation_type TEXT,
@@ -82,6 +93,7 @@ BEGIN
     u.id,
     u.name,
     u.age,
+    u.gender,
     u.festival,
     u.ticket_type,
     u.accommodation_type,
@@ -126,6 +138,9 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- Drop existing trigger if it exists
+DROP TRIGGER IF EXISTS trigger_create_match ON swipes;
+
 -- Trigger to automatically create matches
 CREATE TRIGGER trigger_create_match
   AFTER INSERT ON swipes
@@ -142,6 +157,9 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- Drop existing trigger if it exists
+DROP TRIGGER IF EXISTS trigger_update_users_updated_at ON users;
+
 -- Trigger to automatically update updated_at
 CREATE TRIGGER trigger_update_users_updated_at
   BEFORE UPDATE ON users
@@ -153,6 +171,17 @@ ALTER TABLE users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE swipes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE matches ENABLE ROW LEVEL SECURITY;
 ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
+
+-- Drop existing policies if they exist
+DROP POLICY IF EXISTS "Users can read all users" ON users;
+DROP POLICY IF EXISTS "Users can update own profile" ON users;
+DROP POLICY IF EXISTS "Users can insert own profile" ON users;
+DROP POLICY IF EXISTS "Users can read own swipes" ON swipes;
+DROP POLICY IF EXISTS "Users can insert own swipes" ON swipes;
+DROP POLICY IF EXISTS "Users can read own matches" ON matches;
+DROP POLICY IF EXISTS "Users can read match messages" ON messages;
+DROP POLICY IF EXISTS "Users can insert match messages" ON messages;
+DROP POLICY IF EXISTS "Users can update own messages" ON messages;
 
 -- Users can read all other users (for swiping)
 CREATE POLICY "Users can read all users" ON users

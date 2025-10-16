@@ -12,86 +12,116 @@ import {
   Modal,
   ScrollView,
   Animated,
+  Alert,
+  Dimensions,
+  Keyboard,
 } from 'react-native';
-import { useRoute, RouteProp } from '@react-navigation/native';
+import { useRoute, RouteProp, useNavigation } from '@react-navigation/native';
+import { StackNavigationProp } from '@react-navigation/stack';
 import { PanGestureHandler, State } from 'react-native-gesture-handler';
 import { LinearGradient } from 'expo-linear-gradient';
-import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
+import { MaterialIcons } from '@expo/vector-icons';
 import { RootStackParamList, Message, User } from '../types';
 import { formatMessageTime } from '../utils/helpers';
+import { ChatService } from '../services/chatService';
+import { DeviceAuthService } from '../services/deviceAuthService';
+import { MatchingService } from '../services/matchingService';
+
+const { width, height } = Dimensions.get('window');
 
 type ChatScreenRouteProp = RouteProp<RootStackParamList, 'Chat'>;
-
-// Mock user data for the chat partner
-const mockChatUser: User = {
-  id: 'chat-user-1',
-  name: 'Sarah',
-  age: 24,
-  festival: 'Lowlands 2024',
-  ticketType: '3-Day Pass',
-  accommodationType: 'Hotel',
-  photos: [
-    'https://images.unsplash.com/photo-1494790108755-2616b612b786?w=400',
-    'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=400',
-    'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=400',
-  ],
-  interests: ['Music', 'Dancing', 'Photography'],
-  lastSeen: '2 km away - 5 minutes ago',
-  distance: 2,
-};
-
-// Mock messages data
-const mockMessages: Message[] = [
-  {
-    id: '1',
-    text: 'Hey! I loved your profile. Want to grab coffee sometime?',
-    senderId: 'them',
-    timestamp: new Date(Date.now() - 30 * 60 * 1000), // 30 minutes ago
-    isRead: true,
-  },
-  {
-    id: '2',
-    text: 'Hi! Thanks for the match. I\'d love to grab coffee!',
-    senderId: 'me',
-    timestamp: new Date(Date.now() - 25 * 60 * 1000), // 25 minutes ago
-    isRead: true,
-  },
-  {
-    id: '3',
-    text: 'Great! How about tomorrow at 3 PM?',
-    senderId: 'them',
-    timestamp: new Date(Date.now() - 20 * 60 * 1000), // 20 minutes ago
-    isRead: true,
-  },
-  {
-    id: '4',
-    text: 'That works for me! Where would you like to meet?',
-    senderId: 'me',
-    timestamp: new Date(Date.now() - 15 * 60 * 1000), // 15 minutes ago
-    isRead: false,
-  },
-  {
-    id: '5',
-    text: 'How about Blue Bottle Coffee in Hayes Valley?',
-    senderId: 'them',
-    timestamp: new Date(Date.now() - 10 * 60 * 1000), // 10 minutes ago
-    isRead: false,
-  },
-];
+type ChatScreenNavigationProp = StackNavigationProp<RootStackParamList, 'Chat'>;
 
 const ChatScreen: React.FC = () => {
   const route = useRoute<ChatScreenRouteProp>();
-  const [messages, setMessages] = useState<Message[]>(mockMessages);
+  const navigation = useNavigation<ChatScreenNavigationProp>();
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [chatUser, setChatUser] = useState<User | null>(null);
   const [newMessage, setNewMessage] = useState('');
+  const [isLoading, setIsLoading] = useState(true);
+  const [currentUserId, setCurrentUserId] = useState<string>('');
   const flatListRef = useRef<FlatList>(null);
+  const textInputRef = useRef<TextInput>(null);
   
   // Profile modal states
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
   const modalOpacity = useRef(new Animated.Value(0)).current;
   const modalScale = useRef(new Animated.Value(0.8)).current;
+  const [floatingBarTextIndex, setFloatingBarTextIndex] = useState(0); // Start with distance
 
-  const { matchId, matchName, matchPhoto } = route.params;
+  // Floating bar texts for profile overlay
+  const floatingBarTexts = [
+    { icon: "location-on" as const, text: `${chatUser?.distance || 0} km away` },
+    { icon: "location-on" as const, text: `Show on Map ?` }
+  ];
+
+  // Handle floating bar press for profile overlay
+  const handleFloatingBarPress = () => {
+    if (floatingBarTextIndex === 0) {
+      // First tap: show "Show on Map ?" text
+      setFloatingBarTextIndex(1);
+    } else {
+      // Second tap: close modal and navigate to Map tab
+      closeProfileModal();
+      setTimeout(() => {
+        navigation.navigate('Main', { screen: 'Map' });
+      }, 300); // Wait for modal close animation
+    }
+  };
+
+  // Reset text index when chat user changes
+  useEffect(() => {
+    if (chatUser) {
+      setFloatingBarTextIndex(0); // Reset to distance text
+    }
+  }, [chatUser]);
+
+  const { matchId, matchName, matchPhoto, openKeyboard } = route.params;
+
+  // Load chat data from Supabase
+  useEffect(() => {
+    const loadChatData = async () => {
+      try {
+        setIsLoading(true);
+        
+        // Get current user ID
+        const deviceUserId = await DeviceAuthService.getDeviceUserId();
+        setCurrentUserId(deviceUserId);
+        
+        // Load messages (same for both regular and direct messages)
+        const messagesResult = await ChatService.getMessages(matchId);
+        if (messagesResult.error) {
+          console.log('No existing messages, starting fresh');
+          setMessages([]);
+        } else {
+          setMessages(messagesResult.messages);
+        }
+        
+        // Create chat partner user object
+        const chatPartnerUser: User = {
+          id: matchId, // Using matchId as user ID for now
+          name: matchName,
+          age: 25, // Default age - you might want to get this from the match data
+          festival: 'Unknown Festival', // Default - you might want to get this from the match data
+          ticketType: 'Unknown', // Default - you might want to get this from the match data
+          accommodationType: 'Unknown', // Default - you might want to get this from the match data
+          photos: [matchPhoto], // Use the photo from route params
+          interests: [], // Default empty array
+          lastSeen: new Date().toISOString(),
+        };
+        setChatUser(chatPartnerUser);
+        
+      } catch (error) {
+        console.error('Error loading chat data:', error);
+        Alert.alert('Error', 'Failed to load chat data');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadChatData();
+  }, [matchId]);
 
   useEffect(() => {
     // Scroll to bottom when messages change
@@ -100,8 +130,20 @@ const ChatScreen: React.FC = () => {
     }, 100);
   }, [messages]);
 
+  // Focus text input when component mounts to show keyboard
+  useEffect(() => {
+    if (!isLoading && chatUser && openKeyboard) {
+      setTimeout(() => {
+        textInputRef.current?.focus();
+      }, 100);
+    }
+  }, [isLoading, chatUser, openKeyboard]);
+
   // Profile modal handlers
   const openProfileModal = () => {
+    // Dismiss keyboard when opening profile
+    Keyboard.dismiss();
+    
     setShowProfileModal(true);
     setCurrentPhotoIndex(0);
     modalOpacity.setValue(0);
@@ -139,7 +181,7 @@ const ChatScreen: React.FC = () => {
   };
 
   const nextPhoto = () => {
-    if (currentPhotoIndex < mockChatUser.photos.length - 1) {
+    if (currentPhotoIndex < (chatUser?.photos?.length || 0) - 1) {
       setCurrentPhotoIndex(currentPhotoIndex + 1);
     }
   };
@@ -157,22 +199,103 @@ const ChatScreen: React.FC = () => {
     }
   };
 
-  const sendMessage = () => {
+  const [longPressTimer, setLongPressTimer] = useState<NodeJS.Timeout | null>(null);
+  const [showDeletePopup, setShowDeletePopup] = useState(false);
+  const [deleteTargetUser, setDeleteTargetUser] = useState<User | null>(null);
+
+  const handleRemoveConnection = async () => {
+    console.log('Long press detected! handleRemoveConnection called');
+    if (chatUser) {
+      setDeleteTargetUser(chatUser);
+      setShowDeletePopup(true);
+    }
+  };
+
+  const confirmDeleteConnection = async () => {
+    if (!deleteTargetUser) return;
+    
+    try {
+      const deviceUserId = await DeviceAuthService.getDeviceUserId();
+      const otherUserId = deleteTargetUser.id;
+      
+      const result = await MatchingService.removeConnection(deviceUserId, otherUserId);
+      
+      if (result.success) {
+        Alert.alert('Connection Removed', 'The connection has been removed successfully.', [
+          { text: 'OK', onPress: () => navigation.goBack() }
+        ]);
+      } else {
+        Alert.alert('Error', 'Failed to remove connection. Please try again.');
+      }
+    } catch (error) {
+      console.error('Error removing connection:', error);
+      Alert.alert('Error', 'Failed to remove connection. Please try again.');
+    }
+    
+    setShowDeletePopup(false);
+    setDeleteTargetUser(null);
+  };
+
+  const cancelDeleteConnection = () => {
+    setShowDeletePopup(false);
+    setDeleteTargetUser(null);
+  };
+
+  const handlePressIn = () => {
+    console.log('Press in detected');
+    const timer = setTimeout(() => {
+      console.log('Long press timer triggered!');
+      handleRemoveConnection();
+    }, 500);
+    setLongPressTimer(timer);
+  };
+
+  const handlePressOut = () => {
+    console.log('Press out detected');
+    if (longPressTimer) {
+      clearTimeout(longPressTimer);
+      setLongPressTimer(null);
+    }
+  };
+
+  const handleProfilePress = () => {
+    // Only open profile modal if no delete popup is active
+    if (!showDeletePopup) {
+      openProfileModal();
+    }
+  };
+
+  const sendMessage = async () => {
     if (newMessage.trim()) {
-      const message: Message = {
-        id: Date.now().toString(),
-        text: newMessage.trim(),
-        senderId: 'me',
-        timestamp: new Date(),
-        isRead: false,
-      };
-      setMessages([...messages, message]);
-      setNewMessage('');
+      try {
+        const deviceUserId = await DeviceAuthService.getDeviceUserId();
+        
+        // Send message (same for both regular and direct messages)
+        const sendResult = await ChatService.sendMessage(matchId, deviceUserId, newMessage);
+        
+        if (sendResult.error) {
+          Alert.alert('Error', 'Failed to send message');
+          return;
+        }
+        
+        setNewMessage('');
+        
+        // Reload messages after sending
+        const updatedMessagesResult = await ChatService.getMessages(matchId);
+        
+        if (updatedMessagesResult.error) {
+          setMessages([]);
+        } else {
+          setMessages(updatedMessagesResult.messages);
+        }
+      } catch (error) {
+        Alert.alert('Error', 'Failed to send message');
+      }
     }
   };
 
   const renderMessage = ({ item }: { item: Message }) => {
-    const isMyMessage = item.senderId === 'me';
+    const isMyMessage = item.senderId === currentUserId;
     
     return (
       <View style={[
@@ -189,31 +312,59 @@ const ChatScreen: React.FC = () => {
           ]}>
             {item.text}
           </Text>
-          <Text style={[
-            styles.messageTime,
-            isMyMessage ? styles.myMessageTime : styles.theirMessageTime
-          ]}>
-            {formatMessageTime(item.timestamp)}
-          </Text>
         </View>
       </View>
     );
   };
 
+  if (isLoading || !chatUser) {
+    return (
+      <View style={styles.loadingContainer}>
+        <Text style={styles.loadingText}>Loading chat...</Text>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       {/* Top Bar */}
       <View style={styles.topBar}>
-        <TouchableOpacity style={styles.profileSection} onPress={openProfileModal}>
-          <View style={styles.profileCircle}>
-            <Image
-              source={{
-                uri: matchPhoto || mockChatUser.photos[0]
-              }}
-              style={styles.profileImage}
-            />
+        <TouchableOpacity 
+          style={styles.backButton} 
+          onPress={() => navigation.goBack()}
+          activeOpacity={0.7}
+        >
+          <MaterialIcons name="arrow-back" size={24} color="#FFFFFF" />
+        </TouchableOpacity>
+        
+        <TouchableOpacity 
+          style={styles.centerSection}
+          onPress={handleProfilePress}
+          onPressIn={handlePressIn}
+          onPressOut={handlePressOut}
+          activeOpacity={0.7}
+        >
+          <View style={styles.nameContainer}>
+            <View style={styles.profileSection}>
+              <View style={styles.profileCircle}>
+                <Image
+                  source={{
+                    uri: matchPhoto || chatUser.photos[0]
+                  }}
+                  style={styles.profileImage}
+                />
+              </View>
+            </View>
+            <Text style={styles.matchNameText}>{matchName}</Text>
           </View>
-          <Text style={styles.matchNameText}>{matchName}</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity 
+          style={styles.mapButton} 
+          onPress={() => navigation.navigate('Main', { screen: 'Map' })}
+          activeOpacity={0.7}
+        >
+          <MaterialIcons name="place" size={20} color="#FFFFFF" />
         </TouchableOpacity>
       </View>
 
@@ -233,6 +384,7 @@ const ChatScreen: React.FC = () => {
       
       <View style={styles.inputContainer}>
         <TextInput
+          ref={textInputRef}
           style={styles.textInput}
           value={newMessage}
           onChangeText={setNewMessage}
@@ -255,99 +407,206 @@ const ChatScreen: React.FC = () => {
       </View>
     </KeyboardAvoidingView>
 
-    {/* Profile Modal */}
-    <Modal
-      visible={showProfileModal}
-      animationType="fade"
-      presentationStyle="overFullScreen"
-      onRequestClose={closeProfileModal}
-    >
-      <PanGestureHandler
-        onGestureEvent={onSwipeGesture}
-        onHandlerStateChange={onSwipeGesture}
-        activeOffsetY={10}
-        failOffsetX={[-100, 100]}
-      >
-        <Animated.View style={[
-          styles.profileModalContainer,
-          {
-            opacity: modalOpacity,
-            transform: [{ scale: modalScale }],
-          }
-        ]}>
-          {/* Close Button */}
-          <TouchableOpacity style={styles.profileCloseButton} onPress={closeProfileModal}>
-            <MaterialIcons name="close" size={30} color="#FFFFFF" />
-          </TouchableOpacity>
+    {/* Profile Overlay */}
+    {showProfileModal && chatUser && (
+      <Animated.View style={[
+        styles.profileOverlay,
+        {
+          opacity: modalOpacity,
+          transform: [{ scale: modalScale }],
+        }
+      ]}>
+        {/* Close Button */}
+        <TouchableOpacity style={styles.profileCloseButton} onPress={closeProfileModal}>
+          <MaterialIcons name="close" size={30} color="#FFFFFF" />
+        </TouchableOpacity>
 
-          <View style={styles.profileCard}>
-            <Image 
-              source={{ uri: mockChatUser.photos[currentPhotoIndex] }} 
-              style={styles.profileCardImage} 
-            />
-            
-            {/* Photo Navigation Areas */}
-            <TouchableOpacity style={styles.leftTapArea} onPress={previousPhoto} />
-            <TouchableOpacity style={styles.rightTapArea} onPress={nextPhoto} />
-            
-            {/* Photo Dots */}
-            <View style={styles.photoIndicator}>
-              {mockChatUser.photos.map((_, i) => (
-                <View
-                  key={i}
-                  style={[
-                    styles.photoDot,
-                    i === currentPhotoIndex ? styles.photoDotActive : null,
-                  ]}
-                />
-              ))}
-            </View>
-
-            {/* Distance Indicator */}
-            <View style={styles.distanceIndicator}>
-              <View style={styles.distanceRow}>
-                <MaterialIcons name="location-on" size={20} color="#FFFFFF" style={styles.locationIcon} />
-                <Text style={styles.distanceText}>{mockChatUser.distance} km away</Text>
-              </View>
-              <Text style={styles.timeText}>5 minutes ago</Text>
-            </View>
-            
-            {/* Profile Info Overlay */}
-            <LinearGradient
-              colors={['transparent', 'rgba(0,0,0,0.6)', 'rgba(0,0,0,0.8)']}
-              style={styles.profileCardOverlay}
+        <View style={styles.profileCard}>
+          {/* Floating bar above card */}
+          <View style={styles.floatingBar}>
+            <TouchableOpacity 
+              style={styles.floatingBarContent}
+              onPress={handleFloatingBarPress}
+              activeOpacity={0.8}
             >
-              <ScrollView
-                style={styles.profileCardInfoScroll}
-                showsVerticalScrollIndicator={false}
-              >
-                <View style={styles.nameAgeContainer}>
-                  <Text style={styles.profileCardName}>
-                    {mockChatUser.name}, {mockChatUser.age}
-                  </Text>
-                  
-                  <View style={styles.festivalContainer}>
-                    <Text style={styles.festivalName}>{mockChatUser.festival}</Text>
-                  </View>
-                </View>
-
-                <Text style={styles.profileCardBio}>
-                  <Text style={styles.bioLabel}>Ticket: </Text>
-                  <Text style={styles.bioText}>{mockChatUser.ticketType}</Text>
-                  {'\n'}
-                  <Text style={styles.bioLabel}>Accommodation: </Text>
-                  <Text style={styles.bioText}>{mockChatUser.accommodationType}</Text>
-                  {'\n'}
-                  <Text style={styles.bioText}>- Love music festivals</Text>
-                  {'\n'}
-                  <Text style={styles.bioText}>- Looking for festival buddies</Text>
-                </Text>
-              </ScrollView>
-            </LinearGradient>
+              <View style={styles.floatingBarLeft}>
+                <MaterialIcons name={floatingBarTexts[floatingBarTextIndex].icon} size={16} color="#FFFFFF" />
+                <Text style={styles.floatingBarText}>{floatingBarTexts[floatingBarTextIndex].text}</Text>
+              </View>
+            </TouchableOpacity>
           </View>
-        </Animated.View>
-      </PanGestureHandler>
-    </Modal>
+          
+          <View style={styles.cardContainer}>
+            <View style={styles.card}>
+              <View>
+                <TouchableOpacity 
+                  onPress={() => {}} // Disabled - use the dedicated photo button instead
+                  disabled={true}
+                  activeOpacity={1}
+                >
+                  {chatUser.photos && chatUser.photos.length > 0 && chatUser.photos[currentPhotoIndex] ? (
+                    <Image 
+                      source={{ uri: chatUser.photos[currentPhotoIndex] }} 
+                      style={styles.cardImage}
+                    />
+                  ) : (
+                    <View style={styles.noPhotoContainer}>
+                      <MaterialIcons name="person" size={80} color="#666" />
+                      <Text style={styles.noPhotoText}>No photo available</Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+              </View>
+              
+              {/* Photo navigation tap areas - left and right only */}
+              <TouchableOpacity 
+                style={styles.leftTapArea} 
+                onPress={previousPhoto}
+                activeOpacity={0.8}
+                delayPressIn={50}
+                delayLongPress={200}
+                onLongPress={() => {}} // Ignore long press
+              />
+              <TouchableOpacity 
+                style={styles.rightTapArea} 
+                onPress={nextPhoto}
+                activeOpacity={0.8}
+                delayPressIn={50}
+                delayLongPress={200}
+                onLongPress={() => {}} // Ignore long press
+              />
+              
+              {/* Bottom tap areas for photo navigation */}
+              <TouchableOpacity 
+                style={styles.bottomLeftTapArea} 
+                onPress={previousPhoto}
+                activeOpacity={0.8}
+                delayPressIn={50}
+                delayLongPress={200}
+                onLongPress={() => {}} // Ignore long press
+              />
+              <TouchableOpacity 
+                style={styles.bottomRightTapArea} 
+                onPress={nextPhoto}
+                activeOpacity={0.8}
+                delayPressIn={50}
+                delayLongPress={200}
+                onLongPress={() => {}} // Ignore long press
+              />
+              
+              {/* Photo indicator dots */}
+              {chatUser.photos && chatUser.photos.length > 0 && (
+                <View style={styles.photoIndicator}>
+                  {chatUser.photos.map((_, index) => (
+                    <View
+                      key={index}
+                      style={[
+                        styles.photoDot,
+                        index === currentPhotoIndex && styles.photoDotActive
+                      ]}
+                    />
+                  ))}
+                </View>
+              )}
+              
+              {/* Profile info overlay - same as ProfileScreen */}
+              <LinearGradient
+                colors={['transparent', 'rgba(0,0,0,0.2)', 'rgba(0,0,0,0.4)', 'rgba(0,0,0,0.6)']}
+                locations={[0, 0.3, 0.7, 1]}
+                style={[styles.cardOverlay, { zIndex: 9999 }]} // Very high z-index to stay in front
+              >
+                <View 
+                  style={[
+                    styles.cardInfo,
+                    { zIndex: 1000 } // Ensure animated wrapper stays in front
+                  ]}
+                >
+                  <ScrollView 
+                    style={styles.cardInfoScroll}
+                    showsVerticalScrollIndicator={true}
+                    contentContainerStyle={styles.cardInfoContent}
+                    scrollEventThrottle={16}
+                    nestedScrollEnabled={true}
+                    bounces={true}
+                  >
+                    <View style={styles.nameAgeContainer}>
+                      <View style={styles.nameAgeRow}>
+                        <Text style={styles.cardName}>
+                          {chatUser.name}
+                        </Text>
+                        <Text style={styles.ageSeparator}>, </Text>
+                        <Text style={styles.cardAge}>
+                          {chatUser.age}
+                        </Text>
+                      </View>
+                      
+                      <View style={styles.festivalContainer}>
+                        <Text style={styles.festivalName}>{chatUser.festival}</Text>
+                      </View>
+                    </View>
+
+                    <Text style={styles.cardBio}>
+                      <Text style={styles.bioLabel}>Ticket: </Text>
+                      <Text style={styles.bioText}>
+                        {chatUser.ticketType}
+                      </Text>
+                      {'\n'}
+                      <Text style={styles.bioLabel}>   Stay: </Text>
+                      <Text style={styles.bioText}>
+                        {chatUser.accommodationType}
+                      </Text>
+                    </Text>
+                    
+                    <Text style={styles.bioSection}>
+                      {(() => {
+                        const bioText = chatUser.interests?.join(', ') || '';
+                        if (bioText) {
+                          return (
+                            <>
+                              <Text style={styles.bioQuote}>"</Text>
+                              {bioText}
+                              <Text style={styles.bioQuote}>"</Text>
+                            </>
+                          );
+                        }
+                        return bioText;
+                      })()}
+                    </Text>
+                  </ScrollView>
+                </View>
+              </LinearGradient>
+            </View>
+          </View>
+        </View>
+      </Animated.View>
+    )}
+
+    {/* Custom Delete Popup */}
+    {showDeletePopup && deleteTargetUser && (
+      <View style={styles.deletePopupOverlay}>
+        <View style={styles.deletePopup}>
+          <Text style={styles.deletePopupTitle}>Remove Connection?</Text>
+          <Text style={styles.deletePopupSubtitle}>
+            This will delete all messages with {deleteTargetUser.name}
+          </Text>
+          <View style={styles.deletePopupButtons}>
+            <TouchableOpacity 
+              style={styles.deletePopupCancelButton} 
+              onPress={cancelDeleteConnection}
+            >
+              <Text style={styles.deletePopupCancelText}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={styles.deletePopupDeleteButton} 
+              onPress={confirmDeleteConnection}
+            >
+              <Text style={styles.deletePopupDeleteText}>Delete</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    )}
+
   </View>
   );
 };
@@ -357,49 +616,51 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#000000',
   },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#000000',
+  },
+  loadingText: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: '600',
+  },
   messagesList: {
     paddingVertical: 10,
   },
   messageContainer: {
-    marginBottom: 10,
+    marginVertical: 2,
+    marginHorizontal: 15,
+    flexDirection: 'row',
   },
   myMessageContainer: {
-    alignItems: 'flex-end',
-    paddingRight: 15,
+    justifyContent: 'flex-end',
   },
   theirMessageContainer: {
-    alignItems: 'flex-start',
-    paddingLeft: 15,
+    justifyContent: 'flex-start',
   },
   messageBubble: {
-    maxWidth: '85%',
-    paddingHorizontal: 15,
-    paddingVertical: 10,
-    borderRadius: 20,
+    maxWidth: '70%',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 18,
   },
   myMessageBubble: {
-    backgroundColor: '#ff6b6b',
-    borderBottomRightRadius: 5,
+    backgroundColor: '#333333',
+    borderBottomRightRadius: 4,
   },
   theirMessageBubble: {
-    backgroundColor: '#1A1A1A',
-    borderBottomLeftRadius: 5,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 1,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
+    backgroundColor: '#333333',
+    borderBottomLeftRadius: 4,
   },
   messageText: {
     fontSize: 16,
-    lineHeight: 22,
-    marginBottom: 5,
+    lineHeight: 20,
   },
   myMessageText: {
-    color: '#fff',
+    color: '#FFFFFF',
   },
   theirMessageText: {
     color: '#FFFFFF',
@@ -455,7 +716,6 @@ const styles = StyleSheet.create({
   topBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
     backgroundColor: '#1A1A1A',
     paddingTop: 50,
     paddingBottom: 15,
@@ -463,28 +723,58 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#333333',
   },
+
   profileSection: {
-    flexDirection: 'row',
     alignItems: 'center',
+    marginRight: 10,
   },
   profileCircle: {
-    width: 74,
-    height: 74,
-    borderRadius: 37,
+    width: 50,
+    height: 50,
+    borderRadius: 25,
     overflow: 'hidden',
     borderWidth: 2,
     borderColor: '#ff6b6b',
-    marginRight: 12,
   },
   profileImage: {
     width: '100%',
     height: '100%',
     resizeMode: 'cover',
   },
+  centerSection: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'flex-start',
+    paddingLeft: 50,
+  },
+  nameContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
   matchNameText: {
     color: '#FFFFFF',
     fontSize: 18,
     fontWeight: '600',
+    textAlign: 'center',
+    marginLeft: -7,
+    marginTop: 2,
+  },
+  backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  mapButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   chatContainer: {
     flex: 1,
@@ -623,11 +913,284 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
   },
   bioLabel: {
+    fontSize: 16,
     fontWeight: '600',
-    color: '#CCCCCC',
+    color: '#ff4444',
+    marginTop: 3,
+    textShadowColor: '#000000',
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 1,
   },
   bioText: {
     color: '#FFFFFF',
+  },
+  // Profile overlay styles (same as MatchesScreen)
+  profileOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 1000,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  profileCloseButton: {
+    position: 'absolute',
+    top: 145,
+    right: 20,
+    zIndex: 1000,
+    backgroundColor: '#000000',
+    borderRadius: 25,
+    width: 50,
+    height: 50,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  profileCard: {
+    width: width,
+    height: height,
+    overflow: 'hidden',
+    backgroundColor: '#1A1A1A',
+  },
+  cardContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  card: {
+    width: width * 0.9 + 4,
+    height: height * 0.55 + 90,
+    backgroundColor: '#1A1A1A',
+    borderRadius: 20,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+    overflow: 'hidden',
+    zIndex: 1,
+  },
+  cardImage: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
+    zIndex: 1,
+  },
+  noPhotoContainer: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: '#000000',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  noPhotoText: {
+    color: '#999',
+    fontSize: 16,
+    marginTop: 10,
+    textAlign: 'center',
+  },
+  cardOverlay: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    paddingTop: 0,
+    paddingLeft: 0,
+    paddingRight: 20,
+    zIndex: 999,
+  },
+  cardInfo: {
+    flex: 1,
+    zIndex: 1000,
+  },
+  cardInfoScroll: {
+    flex: 1,
+    zIndex: 1001,
+  },
+  cardInfoContent: {
+    paddingTop: 35,
+    paddingLeft: 20,
+    paddingRight: 60,
+  },
+  nameAgeRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    marginTop: 0,
+    marginBottom: 5,
+  },
+  cardName: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  ageSeparator: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  cardAge: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  cardBio: {
+    fontSize: 14,
+    color: '#fff',
+    marginBottom: 10,
+    marginTop: -5,
+    lineHeight: 18,
+    fontWeight: 'bold',
+  },
+  bioSection: {
+    fontSize: 17,
+    color: '#fff',
+    marginBottom: 10,
+    marginTop: -5,
+    lineHeight: 21,
+    fontWeight: 'normal',
+  },
+  bioQuote: {
+    fontSize: 17,
+    color: '#ff4444',
+    fontWeight: 'normal',
+    textShadowColor: '#000000',
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 1,
+  },
+  leftTapArea: {
+    position: 'absolute',
+    left: 20,
+    top: 0,
+    width: (width / 2) - 20,
+    height: '100%',
+    zIndex: 1002,
+  },
+  rightTapArea: {
+    position: 'absolute',
+    right: 0,
+    top: 0,
+    width: 60,
+    height: '100%',
+    zIndex: 1002,
+  },
+  bottomLeftTapArea: {
+    position: 'absolute',
+    left: 0,
+    bottom: -50,
+    width: width / 2,
+    height: 100,
+    zIndex: 1002,
+  },
+  bottomRightTapArea: {
+    position: 'absolute',
+    right: 0,
+    bottom: -50,
+    width: width / 2,
+    height: 100,
+    zIndex: 1002,
+  },
+  floatingBar: {
+    position: 'absolute',
+    top: 80,
+    left: 20,
+    right: 20,
+    backgroundColor: '#000000',
+    borderRadius: 20,
+    paddingHorizontal: 15,
+    paddingVertical: 10,
+    zIndex: 1000,
+  },
+  floatingBarContent: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  floatingBarLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  floatingBarText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  deletePopupOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 2000,
+  },
+  deletePopup: {
+    backgroundColor: '#1A1A1A',
+    borderRadius: 15,
+    padding: 20,
+    width: width * 0.8,
+    maxWidth: 300,
+    borderWidth: 1,
+    borderColor: '#333',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  deletePopupTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  deletePopupSubtitle: {
+    fontSize: 14,
+    color: '#CCCCCC',
+    textAlign: 'center',
+    marginBottom: 20,
+    lineHeight: 20,
+  },
+  deletePopupButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 15,
+  },
+  deletePopupCancelButton: {
+    flex: 1,
+    backgroundColor: '#333',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  deletePopupDeleteButton: {
+    flex: 1,
+    backgroundColor: '#ff4444',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  deletePopupCancelText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  deletePopupDeleteText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
   },
 });
 

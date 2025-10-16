@@ -91,6 +91,49 @@ export class AuthService {
     }
   }
 
+  // Create or update user profile (for onboarding)
+  static async createUserProfile(userData: Partial<User>) {
+    try {
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      if (authError) throw authError;
+
+      if (!user) {
+        // Create anonymous user if no authenticated user
+        const { data: authData, error: signUpError } = await supabase.auth.signUp({
+          email: `anonymous_${Date.now()}@festivalmatcher.com`,
+          password: `password_${Date.now()}`,
+        });
+        if (signUpError) throw signUpError;
+      }
+
+      const currentUser = user || (await supabase.auth.getUser()).data.user;
+      if (!currentUser) throw new Error('Failed to get or create user');
+
+      // Insert or update user profile
+      const { data, error } = await supabase
+        .from('users')
+        .upsert({
+          id: currentUser.id,
+          name: userData.name || '',
+          age: userData.age || 0,
+          gender: userData.gender || '',
+          festival: userData.festival || '',
+          ticket_type: userData.ticket_type || '',
+          accommodation_type: userData.accommodation_type || '',
+          interests: userData.interests || [],
+          photos: userData.photos || [],
+          last_active: new Date().toISOString(),
+        }, {
+          onConflict: 'id'
+        });
+
+      if (error) throw error;
+      return { profile: data, error: null };
+    } catch (error) {
+      return { profile: null, error };
+    }
+  }
+
   // Update user profile
   static async updateUserProfile(userId: string, updates: Partial<User>) {
     try {

@@ -13,6 +13,7 @@ import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { RootStackParamList } from '../../App';
 import { useProfile } from '../context/ProfileContext';
+import { MaterialIcons } from '@expo/vector-icons';
 
 type EditProfileScreenNavigationProp = StackNavigationProp<RootStackParamList, 'EditProfile'>;
 
@@ -22,18 +23,16 @@ const EditProfileScreen: React.FC = () => {
   const [name, setName] = useState(profileData.name);
   const [age, setAge] = useState(profileData.age);
   const [festivalName, setFestivalName] = useState(profileData.festival);
-  const [ticketType, setTicketType] = useState(profileData.ticketType);
-  const [accommodationType, setAccommodationType] = useState(profileData.accommodationType);
+  const [ticketType, setTicketType] = useState(profileData.accommodation || '');
+  const [accommodationType, setAccommodationType] = useState(profileData.accommodation || '');
 
   const handleSave = () => {
     updateProfile({
       name,
       age,
       festival: festivalName,
-      ticketType,
-      accommodationType,
+      accommodation: accommodationType,
     });
-    Alert.alert('Success', 'Profile updated successfully!');
     navigation.goBack();
   };
 
@@ -56,12 +55,22 @@ const EditProfileScreen: React.FC = () => {
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
         {/* Profile Photo Section */}
         <View style={styles.photoSection}>
-          <Image 
-            source={{ uri: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400' }} 
-            style={styles.profilePhoto} 
-          />
-          <TouchableOpacity style={styles.changePhotoButton}>
-            <Text style={styles.changePhotoText}>Change Photo</Text>
+          {profileData.photos && profileData.photos.length > 0 && profileData.photos[0] ? (
+            <Image 
+              source={{ uri: profileData.photos[0] }} 
+              style={styles.profilePhoto} 
+            />
+          ) : (
+            <View style={styles.noPhotoContainer}>
+              <MaterialIcons name="person" size={60} color="#666" />
+              <Text style={styles.noPhotoText}>No photo</Text>
+            </View>
+          )}
+          <TouchableOpacity 
+            style={styles.changePhotoButton}
+            onPress={() => navigation.navigate('Onboarding' as any)}
+          >
+            <Text style={styles.changePhotoText}>Change Photos</Text>
           </TouchableOpacity>
         </View>
 
@@ -82,8 +91,8 @@ const EditProfileScreen: React.FC = () => {
             <Text style={styles.label}>Age</Text>
             <TextInput
               style={styles.textInput}
-              value={age}
-              onChangeText={setAge}
+              value={age.toString()}
+              onChangeText={(text) => setAge(parseInt(text) || 0)}
               placeholder="Enter your age"
               placeholderTextColor="#666666"
               keyboardType="numeric"
@@ -214,6 +223,21 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     fontSize: 16,
     color: '#FFFFFF',
+  },
+  noPhotoContainer: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: '#2D2D2D',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 15,
+  },
+  noPhotoText: {
+    color: '#999',
+    fontSize: 12,
+    marginTop: 5,
+    textAlign: 'center',
   },
 
 });

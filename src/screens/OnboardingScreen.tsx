@@ -13,25 +13,24 @@ import {
   Image,
   FlatList,
   Keyboard,
+  Modal,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Location from 'expo-location';
-import * as ImagePicker from 'expo-image-picker';
 import { useProfile } from '../context/ProfileContext';
+import { DeviceAuthService } from '../services/deviceAuthService';
 
 const { width, height } = Dimensions.get('window');
 
 interface OnboardingData {
   name: string;
   age: string;
-  gender: string;
   festival: string;
+  ticketType: string;
   accommodation: string;
   locationPermission: boolean;
-  photos: string[];
-  profilePhotoIndex: number;
 }
 
 const festivals = [
@@ -44,7 +43,6 @@ const festivals = [
   'Sziget Festival',
   'Lowlands',
   'Glastonbury',
-  'Other',
 ];
 
 const accommodations = [
@@ -53,12 +51,15 @@ const accommodations = [
   'Friends Camp',
   'VIP Camping',
   'Day Trip',
-  'Other',
 ];
 
-const genders = [
-  'Male',
-  'Female',
+const ticketTypes = [
+  'General Admission',
+  'VIP',
+  'Premium',
+  'Backstage Pass',
+  'Artist Pass',
+  'Media Pass',
 ];
 
 interface OnboardingScreenProps {
@@ -66,7 +67,7 @@ interface OnboardingScreenProps {
 }
 
 const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }) => {
-  const { updateProfile } = useProfile();
+  const { updateProfile, refreshProfile } = useProfile();
   const scrollViewRef = useRef<ScrollView>(null);
   const nameInputRef = useRef<TextInput>(null);
   const ageInputRef = useRef<TextInput>(null);
@@ -74,32 +75,26 @@ const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }) => {
   const [data, setData] = useState<OnboardingData>({
     name: '',
     age: '',
-    gender: '',
     festival: '',
+    ticketType: '',
     accommodation: '',
     locationPermission: false,
-    photos: [],
-    profilePhotoIndex: 0,
   });
 
   const [showAccommodationPicker, setShowAccommodationPicker] = useState(false);
   const [showFestivalPicker, setShowFestivalPicker] = useState(false);
-  const [showGenderPicker, setShowGenderPicker] = useState(false);
+  const [showTicketTypePicker, setShowTicketTypePicker] = useState(false);
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
-  const [selectedSlot, setSelectedSlot] = useState<number | null>(null);
-  const [slotAssignments, setSlotAssignments] = useState<{ [key: number]: number }>({});
-  
-
-  
-
+  const [showCustomInput, setShowCustomInput] = useState(false);
+  const [customInputValue, setCustomInputValue] = useState('');
+  const [customInputField, setCustomInputField] = useState<keyof OnboardingData | null>(null);
 
   const steps = [
     { id: 0, title: 'Welcome to FestivalMatcher', subtitle: 'Tell us about yourself' },
-    { id: 1, title: 'What\'s your gender?', subtitle: 'Help us find better matches' },
-    { id: 2, title: 'Which Festival?', subtitle: 'Find people going to the same event' },
-    { id: 3, title: 'Where are you staying?', subtitle: 'Optional - helps with planning meetups' },
-    { id: 4, title: 'Location Access', subtitle: 'Find people nearby' },
-    { id: 5, title: 'Add Photos', subtitle: 'Show yourself off' },
+    { id: 1, title: 'Which Festival?', subtitle: '' },
+    { id: 2, title: 'What\'s your ticket?', subtitle: '' },
+    { id: 3, title: 'Where are you staying?', subtitle: '' },
+    { id: 4, title: 'Location Ping', subtitle: '' },
   ];
 
   // Auto-focus name input when component mounts
@@ -131,14 +126,34 @@ const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }) => {
     setData(prev => ({ ...prev, [field]: value }));
   };
 
+  const handleCustomInput = (field: keyof OnboardingData) => {
+    setCustomInputField(field);
+    setCustomInputValue('');
+    setShowCustomInput(true);
+  };
+
+  const handleCustomInputSubmit = () => {
+    if (customInputValue.trim() && customInputField) {
+      updateData(customInputField, customInputValue.trim());
+      setShowCustomInput(false);
+      setCustomInputValue('');
+      setCustomInputField(null);
+      
+      // Close the picker and move to next step
+      setShowFestivalPicker(false);
+      setShowTicketTypePicker(false);
+      setShowAccommodationPicker(false);
+      handleNext();
+    }
+  };
+
   const canProceed = () => {
     switch (currentStep) {
       case 0: return data.name.trim().length > 0 && data.age.trim().length > 0 && parseInt(data.age) >= 18;
-      case 1: return data.gender.length > 0;
-      case 2: return data.festival.length > 0;
+      case 1: return data.festival.length > 0;
+      case 2: return data.ticketType.length > 0;
       case 3: return true; // Optional accommodation
       case 4: return true; // Can proceed regardless
-      case 5: return data.photos.length > 0;
       default: return false;
     }
   };
@@ -172,82 +187,117 @@ const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }) => {
       
       if (status === 'granted') {
         Alert.alert('Location Access Granted', 'You can now find people nearby at festivals!');
+        // Complete onboarding after location step
+        setTimeout(() => {
+          handleComplete();
+        }, 1000);
       } else {
-        Alert.alert('Location Access Denied', 'You can enable this later in Settings.');
+        Alert.alert(
+          'Location Access Required', 
+          'Location access is required to use FestivalMatcher. Please enable location services to continue.',
+          [
+            { text: 'Try Again', onPress: () => handleLocationPermission() },
+            { text: 'Cancel', style: 'cancel' }
+          ]
+        );
       }
     } catch (error) {
       console.error('Error requesting location permission:', error);
-      Alert.alert('Error', 'Failed to request location permission. You can enable this later.');
+      Alert.alert(
+        'Location Access Required', 
+        'Location access is required to use FestivalMatcher. Please try again.',
+        [
+          { text: 'Try Again', onPress: () => handleLocationPermission() },
+          { text: 'Cancel', style: 'cancel' }
+        ]
+      );
     }
   };
 
-  const handleAddPhoto = async () => {
-    try {
-      const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      
-      if (permissionResult.status !== 'granted') {
-        Alert.alert('Permission Required', 'Please allow access to your photos to add profile pictures.');
-        return;
-      }
 
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: false,
-        quality: 0.8,
-        allowsMultipleSelection: true,
-        selectionLimit: 6 - data.photos.length, // Max 6 photos total
-      });
 
-      if (!result.canceled && result.assets) {
-        const newPhotos = result.assets.map(asset => asset.uri);
-        updateData('photos', [...data.photos, ...newPhotos]);
-      }
-    } catch (error) {
-      console.error('Error picking image:', error);
-      Alert.alert('Error', 'Failed to add photo. Please try again.');
-    }
-  };
 
-  const handleRemovePhoto = (index: number) => {
-    const newPhotos = data.photos.filter((_, i) => i !== index);
-    let newProfilePhotoIndex = data.profilePhotoIndex;
-    
-    // Adjust profile photo index if needed
-    if (index === data.profilePhotoIndex) {
-      newProfilePhotoIndex = 0;
-    } else if (index < data.profilePhotoIndex) {
-      newProfilePhotoIndex = Math.max(0, data.profilePhotoIndex - 1);
-    }
-    
-    updateData('photos', newPhotos);
-    updateData('profilePhotoIndex', newProfilePhotoIndex);
-  };
-
-  const handleSetProfilePhoto = (index: number) => {
-    updateData('profilePhotoIndex', index);
-  };
 
   const handleComplete = async () => {
     try {
-      // Save to profile context
-      await updateProfile({
+      console.log('Starting onboarding completion...');
+      
+      // Validate age before proceeding
+      const age = parseInt(data.age);
+      console.log('Age validation:', { rawAge: data.age, parsedAge: age, isValid: age >= 18 });
+      
+      if (isNaN(age) || age < 18) {
+        throw new Error(`Invalid age: ${data.age}. Must be 18 or older.`);
+      }
+      
+      // Sign in with device (creates or gets existing user)
+      console.log('Signing in with device...');
+      const deviceResult = await DeviceAuthService.signInWithDevice();
+      if (deviceResult.error) {
+        console.error('Device sign in error:', deviceResult.error);
+        throw deviceResult.error;
+      }
+      console.log('Device sign in successful:', deviceResult.user);
+
+      // Update user profile with onboarding data
+      console.log('Updating user profile with data:', {
         name: data.name,
-        age: parseInt(data.age),
-        gender: data.gender,
+        age: age,
         festival: data.festival,
         accommodation: data.accommodation,
-        locationPermission: data.locationPermission,
-        photos: data.photos,
-        profilePhotoIndex: data.profilePhotoIndex,
       });
-
-      // Mark onboarding as completed
-      await AsyncStorage.setItem('onboardingCompleted', 'true');
       
+      const updateResult = await DeviceAuthService.updateUserProfile({
+        name: data.name,
+        age: age,
+        festival: data.festival,
+        ticket_type: data.ticketType,
+        accommodation_type: data.accommodation,
+        interests: [], // Will be added later
+      });
+      console.log('Database update result:', updateResult);
+
+      if (updateResult.error) {
+        console.error('Profile update error:', updateResult.error);
+        throw updateResult.error;
+      }
+      console.log('Profile update successful:', updateResult.profile);
+
+      // Save to profile context FIRST (before database)
+      console.log('Saving to profile context...');
+      await updateProfile({
+        name: data.name,
+        age: age,
+        festival: data.festival,
+        ticketType: data.ticketType,
+        accommodation: data.accommodation,
+        locationPermission: data.locationPermission,
+      });
+      console.log('Profile context updated');
+
+      // Mark onboarding as completed and go to profile
+      console.log('Marking onboarding as completed...');
+      await AsyncStorage.setItem('onboarding_completed', 'true');
+      
+      console.log('Onboarding completed successfully!');
       onComplete();
     } catch (error) {
       console.error('Error completing onboarding:', error);
-      Alert.alert('Error', 'Failed to save your profile. Please try again.');
+      
+      // More specific error messages
+      let errorMessage = 'Failed to save your profile. Please try again.';
+      
+      if (error instanceof Error) {
+        if (error.message.includes('network') || error.message.includes('fetch')) {
+          errorMessage = 'Network error. Please check your internet connection and try again.';
+        } else if (error.message.includes('database') || error.message.includes('supabase')) {
+          errorMessage = 'Database error. Please make sure your Supabase is properly configured.';
+        } else if (error.message.includes('permission') || error.message.includes('auth')) {
+          errorMessage = 'Authentication error. Please try again.';
+        }
+      }
+      
+      Alert.alert('Error', errorMessage);
     }
   };
 
@@ -258,7 +308,7 @@ const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }) => {
            <View style={styles.stepContainer}>
              {/* Name */}
              <View style={styles.fieldSection}>
-               <Text style={styles.fieldTitle}>What's your name?</Text>
+                               <Text style={styles.fieldTitle}>Name</Text>
                <TextInput
                  ref={nameInputRef}
                  style={styles.textInput}
@@ -280,7 +330,7 @@ const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }) => {
 
              {/* Age */}
              <View style={styles.fieldSection}>
-               <Text style={styles.fieldTitle}>How old are you?</Text>
+               <Text style={styles.fieldTitle}>Age</Text>
                <TextInput
                  ref={ageInputRef}
                  style={styles.textInput}
@@ -303,46 +353,9 @@ const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }) => {
            </View>
          );
 
-             case 1: // Gender Selection
-         return (
-           <View style={styles.stepContainer}>
-             <View style={styles.fieldSection}>
-               <Text style={styles.fieldTitle}>What's your gender?</Text>
-               <TouchableOpacity
-                 style={styles.pickerButton}
-                 onPress={() => setShowGenderPicker(!showGenderPicker)}
-               >
-                 <Text style={[styles.pickerButtonText, data.gender ? styles.pickerButtonTextFilled : null]}>
-                   {data.gender || 'Select your gender'}
-                 </Text>
-                 <MaterialIcons name="keyboard-arrow-down" size={24} color="#666" />
-               </TouchableOpacity>
-               
-               {showGenderPicker && (
-                 <View style={styles.pickerContainer}>
-                   {genders.map((gender) => (
-                     <TouchableOpacity
-                       key={gender}
-                       style={styles.pickerOption}
-                       onPress={() => {
-                         updateData('gender', gender);
-                         setShowGenderPicker(false);
-                         handleNext();
-                       }}
-                     >
-                       <Text style={styles.pickerOptionText}>{gender}</Text>
-                       {data.gender === gender && (
-                         <MaterialIcons name="check" size={20} color="#FF6B6B" />
-                       )}
-                     </TouchableOpacity>
-                   ))}
-                 </View>
-               )}
-             </View>
-           </View>
-         );
 
-             case 2: // Festival Selection
+
+             case 1: // Festival Selection
          return (
            <View style={styles.stepContainer}>
              <View style={styles.fieldSection}>
@@ -358,6 +371,13 @@ const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }) => {
                
                {showFestivalPicker && (
                  <View style={styles.pickerContainer}>
+                   <TouchableOpacity
+                     style={[styles.pickerOption, styles.customInputOption]}
+                     onPress={() => handleCustomInput('festival')}
+                   >
+                     <Text style={[styles.pickerOptionText, styles.customInputText]}>✏️ Write yourself</Text>
+                     <MaterialIcons name="edit" size={20} color="#FF6B6B" />
+                   </TouchableOpacity>
                    {festivals.map((festival) => (
                      <TouchableOpacity
                        key={festival}
@@ -380,7 +400,52 @@ const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }) => {
            </View>
          );
 
-       case 3: // Accommodation
+             case 2: // Ticket Type Selection
+         return (
+           <View style={styles.stepContainer}>
+             <View style={styles.fieldSection}>
+               <TouchableOpacity
+                 style={styles.pickerButton}
+                 onPress={() => setShowTicketTypePicker(!showTicketTypePicker)}
+               >
+                 <Text style={[styles.pickerButtonText, data.ticketType ? styles.pickerButtonTextFilled : null]}>
+                   {data.ticketType || 'Select your ticket type'}
+                 </Text>
+                 <MaterialIcons name="keyboard-arrow-down" size={24} color="#666" />
+               </TouchableOpacity>
+               
+               {showTicketTypePicker && (
+                 <View style={styles.pickerContainer}>
+                   <TouchableOpacity
+                     style={[styles.pickerOption, styles.customInputOption]}
+                     onPress={() => handleCustomInput('ticketType')}
+                   >
+                     <Text style={[styles.pickerOptionText, styles.customInputText]}>✏️ Write yourself</Text>
+                     <MaterialIcons name="edit" size={20} color="#FF6B6B" />
+                   </TouchableOpacity>
+                   {ticketTypes.map((ticketType) => (
+                     <TouchableOpacity
+                       key={ticketType}
+                       style={styles.pickerOption}
+                       onPress={() => {
+                         updateData('ticketType', ticketType);
+                         setShowTicketTypePicker(false);
+                         handleNext();
+                       }}
+                     >
+                       <Text style={styles.pickerOptionText}>{ticketType}</Text>
+                       {data.ticketType === ticketType && (
+                         <MaterialIcons name="check" size={20} color="#FF6B6B" />
+                       )}
+                     </TouchableOpacity>
+                   ))}
+                 </View>
+               )}
+             </View>
+           </View>
+         );
+
+                    case 3: // Accommodation
          return (
            <View style={styles.stepContainer}>
              <View style={styles.fieldSection}>
@@ -396,6 +461,13 @@ const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }) => {
                
                {showAccommodationPicker && (
                  <View style={styles.pickerContainer}>
+                   <TouchableOpacity
+                     style={[styles.pickerOption, styles.customInputOption]}
+                     onPress={() => handleCustomInput('accommodation')}
+                   >
+                     <Text style={[styles.pickerOptionText, styles.customInputText]}>✏️ Write yourself</Text>
+                     <MaterialIcons name="edit" size={20} color="#FF6B6B" />
+                   </TouchableOpacity>
                    {accommodations.map((accommodation) => (
                      <TouchableOpacity
                        key={accommodation}
@@ -421,111 +493,25 @@ const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }) => {
              case 4: // Location Access
          return (
            <View style={styles.stepContainer}>
-             <View style={styles.fieldSection}>
-               <Text style={styles.locationText}>
-                 Allow location access to find people nearby at festivals and discover local events.
-               </Text>
-               
+             <View style={styles.locationSection}>
                <TouchableOpacity
                  style={styles.locationButton}
                  onPress={handleLocationPermission}
                >
                  <MaterialIcons name="location-on" size={24} color="#FFFFFF" />
                  <Text style={styles.locationButtonText}>
-                   {data.locationPermission ? 'Location Access Granted' : 'Enable Location Access'}
+                   {data.locationPermission ? 'Location Access Granted' : 'Enable Location Access (Required)'}
                  </Text>
                </TouchableOpacity>
                
-               <TouchableOpacity
-                 style={styles.skipLocationButton}
-                 onPress={() => updateData('locationPermission', false)}
-               >
-                 <Text style={styles.skipLocationText}>Can be enabled later</Text>
-               </TouchableOpacity>
+               <Text style={styles.locationText}>
+                 Location access is required to use FestivalMatcher. Your location will be used to find people nearby at festivals. Rough location sharing to other users is enabled by default but you can turn it off in settings for better privacy control.
+               </Text>
              </View>
            </View>
          );
 
-              case 5: // Photos
-         return (
-           <View style={styles.stepContainer}>
-             <View style={styles.fieldSection}>
-                              {/* Big Add Photos Button */}
-               <View style={styles.bigAddPhotoContainer}>
-                 <TouchableOpacity style={styles.bigAddPhotoButton} onPress={handleAddPhoto}>
-                   <MaterialIcons name="add-a-photo" size={24} color="#FFFFFF" />
-                   <Text style={styles.bigAddPhotoText}>Add Photos</Text>
-                   <Text style={styles.bigAddPhotoSubtext}>Select photos for your profile</Text>
-                 </TouchableOpacity>
-               </View>
-               
-               {/* Photo Slots and Selection - Only show when photos exist */}
-               {data.photos.length > 0 && (
-                 <View style={styles.photoSlotsContainer}>
-                   <Text style={styles.photoSlotsTitle}>Photo Slots</Text>
-                   <Text style={styles.photoSlotsInstruction}>Select a slot then pick a photo</Text>
-                   
-                   {/* Top Row - Photo Slots */}
-                   <View style={styles.photoSlotsRow}>
-                     {[0, 1, 2, 3].map((slotIndex) => (
-                       <TouchableOpacity
-                         key={slotIndex}
-                         style={[
-                           styles.photoSlot,
-                           selectedSlot === slotIndex && styles.photoSlotSelected
-                         ]}
-                         onPress={() => {
-                           setSelectedSlot(slotIndex);
-                         }}
-                       >
-                         {slotAssignments[slotIndex] !== undefined ? (
-                           <Image 
-                             source={{ uri: data.photos[slotAssignments[slotIndex]] }} 
-                             style={styles.photoSlotImage} 
-                           />
-                         ) : (
-                           <View style={styles.emptySlot}>
-                             <MaterialIcons name="add" size={24} color="#666" />
-                             <Text style={styles.emptySlotText}>{slotIndex + 1}</Text>
-                           </View>
-                         )}
-                         <Text style={styles.slotNumber}>{slotIndex + 1}</Text>
-                       </TouchableOpacity>
-                     ))}
-                   </View>
-                   
-                   {/* Bottom Row - Selected Photos */}
-                   <View style={styles.selectedPhotosContainer}>
-                     <Text style={styles.selectedPhotosTitle}>Your Photos</Text>
-                     <View style={styles.selectedPhotosRow}>
-                       {data.photos.map((photo, index) => (
-                         <TouchableOpacity
-                           key={index}
-                           style={styles.selectedPhotoContainer}
-                           onPress={() => {
-                             // Assign this photo to the selected slot
-                             if (selectedSlot !== null) {
-                               setSlotAssignments(prev => ({
-                                 ...prev,
-                                 [selectedSlot]: index
-                               }));
-                               setSelectedSlot(null);
-                             }
-                           }}
-                         >
-                           <Image source={{ uri: photo }} style={styles.selectedPhotoImage} />
-                           <View style={styles.selectedPhotoOverlay}>
-                             <Text style={styles.selectedPhotoNumber}>{index + 1}</Text>
-                           </View>
-                         </TouchableOpacity>
-                       ))}
-                     </View>
-                   </View>
-                 </View>
-               )}
-             </View>
-           </View>
-         );
+
 
       default:
         return null;
@@ -551,9 +537,8 @@ const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }) => {
           <View style={styles.content}>
             {currentStep === 0 ? (
               <View style={styles.welcomeHeader}>
-                <Text style={styles.welcomeText}>Welcome to the</Text>
+                <Text style={styles.welcomeText}>Welcome to</Text>
                 <Text style={styles.brandText}>FestivalMatcher</Text>
-                <Text style={styles.stepSubtitle}>{steps[currentStep].subtitle}</Text>
               </View>
             ) : currentStep !== 4 ? (
               <>
@@ -569,7 +554,8 @@ const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }) => {
         {/* Navigation Buttons */}
         <View style={[
           styles.navigationContainer,
-          isKeyboardVisible && styles.navigationContainerWithKeyboard
+          isKeyboardVisible && styles.navigationContainerWithKeyboard,
+          currentStep === 0 && styles.navigationContainerFirstStep
         ]}>
           {currentStep > 0 && (
             <TouchableOpacity
@@ -581,24 +567,72 @@ const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }) => {
             </TouchableOpacity>
           )}
           
-          <TouchableOpacity
-            style={[
-              styles.nextButton,
-              !canProceed() && styles.nextButtonDisabled
-            ]}
-            onPress={handleNext}
-            disabled={!canProceed()}
-          >
-            <Text style={styles.nextButtonText}>
-              {currentStep === steps.length - 1 ? 'Complete' : 'Next'}
-            </Text>
-            <MaterialIcons 
-              name={currentStep === steps.length - 1 ? "check" : "arrow-forward"} 
-              size={24} 
-              color="#FFFFFF" 
-            />
-          </TouchableOpacity>
+          {currentStep !== steps.length - 1 && (
+            <TouchableOpacity
+              style={[
+                styles.nextButton,
+                !canProceed() && styles.nextButtonDisabled
+              ]}
+              onPress={handleNext}
+              disabled={!canProceed()}
+            >
+              <Text style={styles.nextButtonText}>Next</Text>
+              <MaterialIcons 
+                name="arrow-forward" 
+                size={24} 
+                color="#FFFFFF" 
+              />
+            </TouchableOpacity>
+          )}
         </View>
+
+        {/* Custom Input Modal */}
+        {showCustomInput && (
+          <Modal
+            animationType="fade"
+            transparent={true}
+            visible={showCustomInput}
+            onRequestClose={() => setShowCustomInput(false)}
+          >
+            <View style={styles.modalOverlay}>
+              <View style={styles.modalContent}>
+                <Text style={styles.modalTitle}>
+                  {customInputField === 'festival' && 'Enter Festival Name'}
+                  {customInputField === 'ticketType' && 'Enter Ticket Type'}
+                  {customInputField === 'accommodation' && 'Enter Accommodation Type'}
+                </Text>
+                
+                <TextInput
+                  style={styles.modalInput}
+                  value={customInputValue}
+                  onChangeText={setCustomInputValue}
+                  placeholder={`Enter ${customInputField}...`}
+                  placeholderTextColor="#666"
+                  autoFocus
+                  onSubmitEditing={handleCustomInputSubmit}
+                />
+                
+                <View style={styles.modalButtons}>
+                  <TouchableOpacity
+                    style={styles.modalButtonCancel}
+                    onPress={() => setShowCustomInput(false)}
+                  >
+                    <Text style={styles.modalButtonText}>Cancel</Text>
+                  </TouchableOpacity>
+                  
+                  <TouchableOpacity
+                    style={[styles.modalButtonSubmit, !customInputValue.trim() && styles.modalButtonDisabled]}
+                    onPress={handleCustomInputSubmit}
+                    disabled={!customInputValue.trim()}
+                  >
+                    <Text style={styles.modalButtonText}>Submit</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          </Modal>
+        )}
+
       </View>
     </LinearGradient>
   );
@@ -623,25 +657,26 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
     paddingHorizontal: 20,
-    paddingTop: 60,
+    paddingTop: 120,
   },
 
   stepTitle: {
     fontSize: 28,
     fontWeight: 'bold',
     color: '#FFFFFF',
-    marginBottom: 8,
+    marginBottom: -30,
     textAlign: 'center',
   },
   stepSubtitle: {
     fontSize: 16,
     color: '#999',
-    marginBottom: 40,
+    marginBottom: 20,
     textAlign: 'center',
   },
   welcomeHeader: {
     alignItems: 'center',
-    marginBottom: 40,
+    marginBottom: 20,
+    marginTop: 33,
   },
   welcomeText: {
     fontSize: 16,
@@ -654,18 +689,53 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#FFFFFF',
     textAlign: 'center',
-    marginBottom: 8,
+    marginBottom: 0,
   },
   stepContainer: {
     flex: 1,
     justifyContent: 'flex-start',
     alignItems: 'center',
     minHeight: 400,
-    paddingTop: 20,
+    paddingTop: 13,
   },
   fieldSection: {
     width: '100%',
     marginBottom: 20,
+  },
+  locationSection: {
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flex: 1,
+  },
+  photosSection: {
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flex: 1,
+  },
+  photosSummaryContainer: {
+    width: '100%',
+    alignItems: 'center',
+    marginTop: 20,
+  },
+  photosSummaryText: {
+    fontSize: 18,
+    color: '#FFFFFF',
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+  completeButton: {
+    backgroundColor: '#FF6B6B',
+    paddingVertical: 16,
+    paddingHorizontal: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  completeButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
   },
   fieldTitle: {
     fontSize: 20,
@@ -728,6 +798,15 @@ const styles = StyleSheet.create({
   pickerOptionText: {
     fontSize: 16,
     color: '#FFFFFF',
+  },
+  customInputOption: {
+    backgroundColor: 'rgba(255, 107, 107, 0.1)',
+    borderBottomWidth: 2,
+    borderBottomColor: '#FF6B6B',
+  },
+  customInputText: {
+    color: '#FF6B6B',
+    fontWeight: '600',
   },
   locationText: {
     fontSize: 16,
@@ -893,12 +972,6 @@ const styles = StyleSheet.create({
     height: '100%',
     borderRadius: 20,
   },
-  photoContainer: {
-    width: '100%',
-    height: '100%',
-    overflow: 'hidden',
-    borderRadius: 20,
-  },
   placeholderImage: {
     width: '100%',
     height: '100%',
@@ -1044,6 +1117,30 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: 2,
     textAlign: 'center',
+    opacity: 0.8,
+  },
+  skipPhotosContainer: {
+    marginTop: 20,
+    alignItems: 'center',
+  },
+  skipPhotosButton: {
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: '#666',
+    alignItems: 'center',
+  },
+  skipPhotosText: {
+    color: '#666',
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  skipPhotosSubtext: {
+    color: '#666',
+    fontSize: 12,
+    marginTop: 2,
     opacity: 0.8,
   },
   // Small card styles
@@ -1321,43 +1418,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: 'bold',
   },
-  removePhotoButton: {
-    position: 'absolute',
-    top: 4,
-    right: 4,
-    backgroundColor: 'rgba(255, 0, 0, 0.8)',
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  profilePhotoBadge: {
-    position: 'absolute',
-    top: 4,
-    left: 4,
-    backgroundColor: '#FFD700',
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  setProfilePhotoButton: {
-    position: 'absolute',
-    bottom: 4,
-    left: 4,
-    right: 4,
-    backgroundColor: 'rgba(0, 0, 0, 0.8)',
-    paddingVertical: 4,
-    borderRadius: 4,
-    alignItems: 'center',
-  },
-  setProfilePhotoText: {
-    color: '#FFFFFF',
-    fontSize: 10,
-    fontWeight: '600',
-  },
 
   navigationContainer: {
     flexDirection: 'row',
@@ -1366,6 +1426,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 20,
     marginTop: 20,
+  },
+  navigationContainerFirstStep: {
+    justifyContent: 'flex-end',
   },
   navigationContainerWithKeyboard: {
     position: 'absolute',
@@ -1413,6 +1476,67 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 8,
   },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 80,
+  },
+  modalContent: {
+    backgroundColor: '#2D2D2D',
+    borderRadius: 16,
+    padding: 24,
+    width: width * 0.8,
+    maxWidth: 400,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  modalInput: {
+    width: '100%',
+    height: 56,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 12,
+    paddingHorizontal: 20,
+    fontSize: 18,
+    color: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+    marginBottom: 20,
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  modalButtonCancel: {
+    flex: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    paddingVertical: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  modalButtonSubmit: {
+    flex: 1,
+    backgroundColor: '#FF6B6B',
+    paddingVertical: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  modalButtonDisabled: {
+    backgroundColor: 'rgba(255, 107, 107, 0.5)',
+  },
+  modalButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+
 });
 
 export default OnboardingScreen; 

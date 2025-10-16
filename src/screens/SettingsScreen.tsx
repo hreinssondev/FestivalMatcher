@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -15,6 +15,12 @@ import { StackNavigationProp } from '@react-navigation/stack';
 import { RootStackParamList } from '../../App';
 import { useOnboarding } from '../context/OnboardingContext';
 import { useProfile } from '../context/ProfileContext';
+import { useSettings } from '../context/SettingsContext';
+import { usePremium } from '../context/PremiumContext';
+import { useUserCount } from '../context/UserCountContext';
+import { DeviceAuthService } from '../services/deviceAuthService';
+import { MatchingService } from '../services/matchingService';
+import PremiumPopup from '../components/PremiumPopup';
 
 type SettingsScreenNavigationProp = StackNavigationProp<RootStackParamList, 'Settings'>;
 
@@ -22,6 +28,11 @@ const SettingsScreen: React.FC = () => {
   const navigation = useNavigation<SettingsScreenNavigationProp>();
   const { resetOnboarding } = useOnboarding();
   const { profileData } = useProfile();
+  const { settings, updateSetting, resetSettings } = useSettings();
+  const { isPremium, activatePremium, deactivatePremium } = usePremium();
+  const { hasUserCountFeature, deactivateUserCountFeature } = useUserCount();
+  const [showDevOptions, setShowDevOptions] = useState(false);
+  const [showPremiumPopup, setShowPremiumPopup] = useState(false);
 
   const handleResetOnboarding = () => {
     Alert.alert(
@@ -41,6 +52,24 @@ const SettingsScreen: React.FC = () => {
     );
   };
 
+  const handleResetSettings = () => {
+    Alert.alert(
+      'Reset Settings',
+      'This will reset all app settings to their default values. Continue?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Reset',
+          style: 'destructive',
+          onPress: async () => {
+            await resetSettings();
+            Alert.alert('Settings Reset', 'All settings have been reset to default values.');
+          },
+        },
+      ]
+    );
+  };
+
   const handleClearData = () => {
     Alert.alert(
       'Clear All Data',
@@ -53,6 +82,7 @@ const SettingsScreen: React.FC = () => {
           onPress: async () => {
             // Clear all data
             await resetOnboarding();
+            await resetSettings();
             // You could add more data clearing here
             Alert.alert('Data Cleared', 'All data has been cleared. Restart the app to start fresh.');
           },
@@ -61,18 +91,133 @@ const SettingsScreen: React.FC = () => {
     );
   };
 
-  const handleLogout = () => {
+
+
+  const handleBuyPremium = () => {
+    setShowPremiumPopup(true);
+  };
+
+  const handlePremiumUpgrade = async () => {
+    setShowPremiumPopup(false);
+    // TODO: Implement actual payment processing
+    // For now, activate premium immediately for demo purposes
+    const expiryDate = new Date();
+    expiryDate.setMonth(expiryDate.getMonth() + 1); // 1 month from now
+    await activatePremium(expiryDate);
+    Alert.alert('Premium Activated!', 'Your premium features are now active for 1 month!');
+  };
+
+  const handleDeactivatePremium = () => {
     Alert.alert(
-      'Logout',
-      'Are you sure you want to logout?',
+      'Deactivate Premium',
+      'Are you sure you want to deactivate premium? This will remove all premium features.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Logout',
+          text: 'Deactivate',
           style: 'destructive',
-          onPress: () => {
-            // Handle logout logic here
-            Alert.alert('Logged Out', 'You have been logged out successfully.');
+          onPress: async () => {
+            await deactivatePremium();
+            Alert.alert('Premium Deactivated', 'Premium features have been deactivated.');
+          },
+        },
+      ]
+    );
+  };
+
+  const handleDeactivateUserCount = () => {
+    Alert.alert(
+      'Deactivate User Count Feature',
+      'Are you sure you want to deactivate the user count feature? This will remove access to see nearby users.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Deactivate',
+          style: 'destructive',
+          onPress: async () => {
+            await deactivateUserCountFeature();
+            Alert.alert('User Count Feature Deactivated', 'User count feature has been deactivated.');
+          },
+        },
+      ]
+    );
+  };
+
+  const handleClearSwipes = async () => {
+    Alert.alert(
+      'Clear All Swipes',
+      'This will clear all your swipe history and allow you to see profiles again. Continue?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Clear Swipes',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const result = await MatchingService.clearAllSwipes();
+              if (result.success) {
+                Alert.alert('✅ Success', 'All swipes cleared! Go back to Swipe tab to see profiles again.');
+              } else {
+                Alert.alert('❌ Failed', 'Failed to clear swipes');
+              }
+            } catch (error) {
+              console.error('Error clearing swipes:', error);
+              Alert.alert('❌ Error', 'Error clearing swipes');
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleClearMatchesAndDMs = async () => {
+    Alert.alert(
+      'Clear Matches & DMs',
+      'This will clear all matches, direct messages, and swipe history. This action cannot be undone. Continue?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Clear All',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const result = await MatchingService.clearAllMatchesAndMessages();
+              if (result.success) {
+                Alert.alert('✅ Success', 'All matches, messages, and DMs have been cleared!');
+              } else {
+                Alert.alert('❌ Failed', 'Failed to clear some data. Check console for details.');
+              }
+            } catch (error) {
+              console.error('Error clearing data:', error);
+              Alert.alert('❌ Error', 'Failed to clear data. Check console for details.');
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleDeleteAllUsers = async () => {
+    Alert.alert(
+      'Delete All Users',
+      '⚠️ WARNING: This will permanently delete ALL registered users/profiles from the database. This action cannot be undone. Continue?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete All Users',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const result = await MatchingService.deleteAllUsers();
+              if (result.success) {
+                Alert.alert('✅ Success', 'All users deleted! The database is now empty. You can create new test users.');
+              } else {
+                Alert.alert('❌ Failed', 'Failed to delete users');
+              }
+            } catch (error) {
+              console.error('Error deleting users:', error);
+              Alert.alert('❌ Error', 'Error deleting users');
+            }
           },
         },
       ]
@@ -145,19 +290,33 @@ const SettingsScreen: React.FC = () => {
           <View style={styles.headerSpacer} />
         </View>
 
-        {/* Profile Section */}
+        {/* Premium */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Profile</Text>
-          {renderSettingItem(
-            'person',
-            'Edit Profile',
-            'Update your personal information',
-            () => navigation.navigate('EditProfile' as any)
-          )}
-          {renderSettingItem(
-            'photo-camera',
-            'Change Photos',
-            'Update your profile pictures'
+          <Text style={styles.sectionTitle}>Premium</Text>
+          {isPremium ? (
+            renderSettingItem(
+              'star',
+              'Premium Active',
+              'Your premium features are active',
+              undefined,
+              false,
+              false,
+              undefined,
+              undefined,
+              false
+            )
+          ) : (
+            renderSettingItem(
+              'star',
+              'Buy Premium',
+              '1 month of premium features',
+              handleBuyPremium,
+              true,
+              false,
+              undefined,
+              undefined,
+              false
+            )
           )}
         </View>
 
@@ -167,68 +326,22 @@ const SettingsScreen: React.FC = () => {
           {renderSettingItem(
             'notifications',
             'Push Notifications',
-            'Get notified about new matches',
-            undefined,
-            false,
-            true,
-            true,
-            (value) => console.log('Notifications:', value)
+            'All notifications',
+            () => navigation.navigate('NotificationSettings' as any)
           )}
           {renderSettingItem(
             'location-on',
-            'Location Services',
-            'Find people nearby at festivals',
-            undefined,
-            false,
-            true,
-            true,
-            (value) => console.log('Location:', value)
-          )}
-          {renderSettingItem(
-            'visibility',
-            'Profile Visibility',
-            'Control who can see your profile',
-            undefined,
-            false,
-            true,
-            true,
-            (value) => console.log('Visibility:', value)
+            'Show me on Map',
+            'Pings your latest location when you open the app',
+            () => navigation.navigate('MapSettings' as any)
           )}
         </View>
 
-        {/* Privacy & Security */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Privacy & Security</Text>
-          {renderSettingItem(
-            'security',
-            'Privacy Settings',
-            'Manage your privacy preferences'
-          )}
-          {renderSettingItem(
-            'block',
-            'Blocked Users',
-            'Manage blocked users'
-          )}
-          {renderSettingItem(
-            'report',
-            'Report Issues',
-            'Report bugs or inappropriate content'
-          )}
-        </View>
+
 
         {/* Account */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Account</Text>
-          {renderSettingItem(
-            'email',
-            'Change Email',
-            'Update your email address'
-          )}
-          {renderSettingItem(
-            'lock',
-            'Change Password',
-            'Update your password'
-          )}
           {renderSettingItem(
             'delete',
             'Delete Account',
@@ -242,53 +355,9 @@ const SettingsScreen: React.FC = () => {
           )}
         </View>
 
-        {/* Development */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Development</Text>
-          {renderSettingItem(
-            'refresh',
-            'Reset Onboarding',
-            'Show onboarding screens again',
-            handleResetOnboarding
-          )}
-          {renderSettingItem(
-            'clear',
-            'Clear All Data',
-            'Reset app to initial state',
-            handleClearData,
-            true,
-            false,
-            undefined,
-            undefined,
-            true
-          )}
-        </View>
-
-        {/* Logout */}
-        <View style={styles.section}>
-          {renderSettingItem(
-            'logout',
-            'Logout',
-            'Sign out of your account',
-            handleLogout,
-            true,
-            false,
-            undefined,
-            undefined,
-            true
-          )}
-        </View>
-
         {/* App Info */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>About</Text>
-          {renderSettingItem(
-            'info',
-            'App Version',
-            '1.0.0',
-            undefined,
-            false
-          )}
           {renderSettingItem(
             'description',
             'Terms of Service',
@@ -300,7 +369,138 @@ const SettingsScreen: React.FC = () => {
             'Read our privacy policy'
           )}
         </View>
+
+        {/* Development */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Development</Text>
+          <TouchableOpacity
+            style={styles.devToggleItem}
+            onPress={() => setShowDevOptions(!showDevOptions)}
+          >
+            <View style={styles.settingItemLeft}>
+              <MaterialIcons
+                name="developer-mode"
+                size={24}
+                color="#FF6B6B"
+                style={styles.settingIcon}
+              />
+              <View style={styles.settingTextContainer}>
+                <Text style={styles.settingTitle}>
+                  Developer Options
+                </Text>
+                <Text style={styles.settingSubtitle}>
+                  {showDevOptions ? 'Hide development tools' : 'Show development tools'}
+                </Text>
+              </View>
+            </View>
+            <MaterialIcons 
+              name={showDevOptions ? "expand-less" : "expand-more"} 
+              size={24} 
+              color="#FF6B6B" 
+            />
+          </TouchableOpacity>
+          
+          {showDevOptions && (
+            <View style={styles.devOptionsContainer}>
+              {renderSettingItem(
+                'refresh',
+                'Reset Onboarding',
+                'Show onboarding screens again',
+                handleResetOnboarding
+              )}
+              {renderSettingItem(
+                'settings-backup-restore',
+                'Reset Settings',
+                'Reset all app settings to default',
+                handleResetSettings
+              )}
+              {renderSettingItem(
+                'delete-sweep',
+                'Clear Matches & DMs',
+                'Clear all matches, messages and swipes',
+                handleClearMatchesAndDMs,
+                true,
+                false,
+                undefined,
+                undefined,
+                true
+              )}
+              {renderSettingItem(
+                'clear',
+                'Clear All Data',
+                'Reset app to initial state',
+                handleClearData,
+                true,
+                false,
+                undefined,
+                undefined,
+                true
+              )}
+              {renderSettingItem(
+                'bug-report',
+                'Supabase Test',
+                'Test database connection and schema',
+                () => navigation.navigate('SupabaseTest')
+              )}
+              {renderSettingItem(
+                'trash',
+                'Clear Device Data',
+                'Clear all local device data (for testing)',
+                async () => {
+                  try {
+                    await DeviceAuthService.clearDeviceData();
+                    Alert.alert('Success', 'Device data cleared successfully!');
+                  } catch (error) {
+                    Alert.alert('Error', 'Failed to clear device data');
+                  }
+                }
+              )}
+              {renderSettingItem(
+                'delete-forever',
+                'Delete All Users',
+                '⚠️ Permanently delete ALL users from database',
+                handleDeleteAllUsers,
+                true,
+                false,
+                undefined,
+                undefined,
+                true
+              )}
+              {renderSettingItem(
+                'star-outline',
+                'Deactivate Premium',
+                'Remove premium status (dev only)',
+                handleDeactivatePremium,
+                true,
+                false,
+                undefined,
+                undefined,
+                true
+              )}
+              {hasUserCountFeature && renderSettingItem(
+                'people-outline',
+                'Deactivate User Count Feature',
+                'Remove access to see nearby users (dev only)',
+                handleDeactivateUserCount,
+                true,
+                false,
+                undefined,
+                undefined,
+                true
+              )}
+            </View>
+          )}
+        </View>
       </ScrollView>
+
+      {/* Premium Popup */}
+      <PremiumPopup
+        isVisible={showPremiumPopup}
+        onClose={() => setShowPremiumPopup(false)}
+        onUpgrade={handlePremiumUpgrade}
+        title="Unlock Premium Features"
+        message="Upgrade to premium and unlock exclusive features!"
+      />
     </LinearGradient>
   );
 };
@@ -347,7 +547,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 15,
+    paddingVertical: 10,
     paddingHorizontal: 20,
     backgroundColor: 'rgba(255, 255, 255, 0.05)',
     marginHorizontal: 20,
@@ -380,6 +580,22 @@ const styles = StyleSheet.create({
   },
   destructiveText: {
     color: '#FF6B6B',
+  },
+  devToggleItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    backgroundColor: 'rgba(255, 107, 107, 0.1)',
+    marginHorizontal: 20,
+    marginBottom: 1,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 107, 107, 0.3)',
+  },
+  devOptionsContainer: {
+    marginTop: 5,
   },
 });
 

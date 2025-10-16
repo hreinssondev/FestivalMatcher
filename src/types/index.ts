@@ -9,6 +9,10 @@ export interface User {
   interests: string[];
   lastSeen: string;
   distance?: number;
+  coordinate?: {
+    latitude: number;
+    longitude: number;
+  };
 }
 
 export interface Match {
@@ -41,8 +45,8 @@ export interface Chat {
 
 // Navigation types
 export type RootStackParamList = {
-  Main: undefined;
-  Chat: { matchId: string; matchName: string; matchPhoto: string };
+  Main: { screen?: keyof MainTabParamList } | undefined;
+      Chat: { matchId: string; matchName: string; matchPhoto: string; openKeyboard?: boolean };
 };
 
 export type MainTabParamList = {

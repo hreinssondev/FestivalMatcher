@@ -87,9 +87,9 @@ android {
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
 
-    namespace 'com.anonymous.TinderCloneExpo'
+    namespace 'com.hlynurh.festivalmatcher'
     defaultConfig {
-        applicationId 'com.anonymous.TinderCloneExpo'
+        applicationId 'com.hlynurh.festivalmatcher'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1

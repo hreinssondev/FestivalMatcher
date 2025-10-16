@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -8,140 +8,263 @@ import {
   Image,
   ScrollView,
   Animated,
+  Alert,
 } from 'react-native';
 import { PanGestureHandler, State } from 'react-native-gesture-handler';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useProfile } from '../context/ProfileContext';
-import { User } from '../types';
-import Icon from 'react-native-ico-essential';
-import IconLodgicons from 'react-native-ico-lodgicons';
 import { MaterialIcons } from '@expo/vector-icons';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
+import { MatchingService } from '../services/matchingService';
+import { DeviceAuthService } from '../services/deviceAuthService';
+import { useProfile } from '../context/ProfileContext';
+import { usePremium } from '../context/PremiumContext';
+import { User } from '../types/index';
+import { MainTabParamList } from '../../App';
+import MatchPopup from '../components/MatchPopup';
+import PremiumPopup from '../components/PremiumPopup';
+import { supabase } from '../utils/supabase';
+
 
 const { width, height } = Dimensions.get('window');
 
-// Mock data - will be updated with profile context
-const createMockUsers = (profileData: any): User[] => [
-  {
-    id: '1',
-    name: 'Sarah',
-    age: 25,
-    festival: profileData.festival,
-    ticketType: profileData.ticketType,
-    accommodationType: profileData.accommodationType,
-    photos: [
-      'https://images.unsplash.com/photo-1494790108755-2616b612b786?w=400',
-      'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=400',
-      'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=400'
-    ],
-    interests: ['Hiking', 'Coffee', 'Travel', 'Photography'],
-    lastSeen: '1 km away - 6 minutes ago',
-    distance: 2,
-  },
-  {
-    id: '2',
-    name: 'Mike',
-    age: 28,
-    festival: profileData.festival,
-    ticketType: profileData.ticketType,
-    accommodationType: profileData.accommodationType,
-    photos: [
-      'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400',
-      'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=400',
-      'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=400'
-    ],
-    interests: ['Music', 'Technology', 'Cooking', 'Fitness'],
-    lastSeen: '2 km away - 6 minutes ago',
-    distance: 5,
-  },
-  {
-    id: '3',
-    name: 'Emma',
-    age: 23,
-    festival: profileData.festival,
-    ticketType: profileData.ticketType,
-    accommodationType: profileData.accommodationType,
-    photos: [
-      'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=400',
-      'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=400',
-      'https://images.unsplash.com/photo-1489424731084-a5d8b219a5bb?w=400'
-    ],
-    interests: ['Art', 'Yoga', 'Meditation', 'Reading'],
-    lastSeen: '3 km away - 6 minutes ago',
-    distance: 1,
-  },
-  {
-    id: '4',
-    name: 'Alex',
-    age: 26,
-    festival: profileData.festival,
-    ticketType: profileData.ticketType,
-    accommodationType: profileData.accommodationType,
-    photos: [
-      'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=400',
-      'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=400',
-      'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400'
-    ],
-    interests: ['Adventure', 'Food', 'Travel', 'Fitness'],
-    lastSeen: '4 km away - 6 minutes ago',
-    distance: 3,
-  },
-  {
-    id: '5',
-    name: 'Sophia',
-    age: 24,
-    festival: profileData.festival,
-    ticketType: profileData.ticketType,
-    accommodationType: profileData.accommodationType,
-    photos: [
-      'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400',
-      'https://images.unsplash.com/photo-1494790108755-2616b612b786?w=400',
-      'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=400'
-    ],
-    interests: ['Music', 'Art', 'Poetry', 'Nature'],
-    lastSeen: '5 km away - 6 minutes ago',
-    distance: 4,
-  },
-];
+type SwipeScreenNavigationProp = BottomTabNavigationProp<MainTabParamList, 'Swipe'>;
 
-const SwipeScreen: React.FC = () => {
-  const { profileData } = useProfile();
-  const mockUsers = createMockUsers(profileData);
-  const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
+const SwipeScreen = () => {
+  const navigation = useNavigation<SwipeScreenNavigationProp>();
+  const { isPremium } = usePremium();
   const [currentUserIndex, setCurrentUserIndex] = useState(0);
-  const [scrollPosition, setScrollPosition] = useState(0);
-  const [isScrolling, setIsScrolling] = useState(false);
+  const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
+  const [isLoading, setIsLoading] = useState(true);
+  const [potentialMatches, setPotentialMatches] = useState<User[]>([]);
+  const [isFading, setIsFading] = useState(false);
+  const [showMatchPopup, setShowMatchPopup] = useState(false);
+  const [matchedUser, setMatchedUser] = useState<User | null>(null);
+  const [showPremiumPopup, setShowPremiumPopup] = useState(false);
   const scrollViewRef = React.useRef<ScrollView>(null);
   const infoHeightAnim = React.useRef(new Animated.Value(200)).current;
- // Shorter default height
+  const cardOpacityAnim = React.useRef(new Animated.Value(1)).current;
 
-  const currentUser = mockUsers[currentUserIndex];
+  const currentUser = potentialMatches[currentUserIndex];
+  const [floatingBarTextIndex, setFloatingBarTextIndex] = useState(0); // Start with distance
+  const floatingBarTexts = [
+    { icon: "location-on" as const, text: `${currentUser?.distance || 0} km away` },
+    { icon: "location-on" as const, text: `Show on Map ?` }
+  ];
 
-  // Safety check to prevent crashes
-  if (!currentUser || currentUserIndex >= mockUsers.length) {
-    return (
-      <View style={styles.container}>
-        <Text style={styles.noMoreText}>No more profiles to show!</Text>
-      </View>
-    );
-  }
-
-  const handleLike = () => {
-    nextCard();
+  const handleFloatingBarPress = () => {
+    if (floatingBarTextIndex === 0) {
+      // First tap: show "Show on Map ?" text
+      setFloatingBarTextIndex(1);
+    } else {
+      // Second tap: navigate to Map tab
+      navigation.navigate('Map');
+    }
   };
 
-  const handleDislike = () => {
-    nextCard();
+  // Reset text index when user changes
+  useEffect(() => {
+    if (currentUser) {
+      setFloatingBarTextIndex(0); // Reset to distance text
+    }
+  }, [currentUser]);
+
+
+  const preloadImages = (photos: string[]) => {
+    photos.forEach(photoUrl => {
+      if (photoUrl) {
+        Image.prefetch(photoUrl).catch(() => {
+          // Silently handle prefetch errors
+        });
+      }
+    });
+  };
+
+  const loadPotentialMatches = async () => {
+    try {
+      const deviceUserId = await DeviceAuthService.getDeviceUserId();
+      const userLocation = { latitude: 0, longitude: 0 }; // Default location
+      const result = await MatchingService.getAllUsersByDistance(deviceUserId, userLocation);
+      
+      if (result.error) {
+        console.error('Error loading matches:', result.error);
+        return;
+      }
+      
+      // Additional filter to ensure current user is never shown
+      const filteredUsers = result.users.filter(user => user.id !== deviceUserId);
+      
+      setPotentialMatches(filteredUsers);
+      
+      // Preload images for the first few users
+      filteredUsers.slice(0, 3).forEach(user => {
+        if (user.photos && user.photos.length > 0) {
+          preloadImages(user.photos);
+        }
+      });
+    } catch (error) {
+      console.error('Error loading potential matches:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadPotentialMatches();
+  }, []);
+
+  // Refresh data when screen comes into focus (e.g., after clearing swipes)
+  useFocusEffect(
+    React.useCallback(() => {
+      loadPotentialMatches();
+    }, [])
+  );
+
+  const handleLike = async () => {
+    if (!currentUser) return;
+    
+    try {
+      const deviceUserId = await DeviceAuthService.getDeviceUserId();
+      console.log('SwipeScreen: REAL LIKE - About to record swipe for user:', currentUser.name, 'deviceUserId:', deviceUserId);
+      
+      // First, try to record the swipe (ignore errors)
+      try {
+        await MatchingService.recordSwipe(deviceUserId, currentUser.id, 'like');
+        console.log('SwipeScreen: Swipe recorded successfully');
+      } catch (swipeError: any) {
+        console.log('SwipeScreen: Swipe error (continuing anyway):', swipeError);
+      }
+      
+      // Now check if there's a match (either new or existing)
+      try {
+        // Check if these users are already matched
+        const existingMatch = await MatchingService.checkIfMatched(deviceUserId, currentUser.id);
+        console.log('SwipeScreen: Match check result:', existingMatch);
+        
+        if (existingMatch.isMatched) {
+          console.log('SwipeScreen: MATCH FOUND! Showing popup for:', currentUser.name);
+          setMatchedUser(currentUser);
+          setShowMatchPopup(true);
+          return; // Don't proceed to next card yet
+        }
+      } catch (matchError: any) {
+        console.log('SwipeScreen: Match check error:', matchError);
+      }
+      
+      console.log('SwipeScreen: No match, proceeding to next card');
+      
+      // Add fade-out effect
+      setIsFading(true);
+      Animated.timing(cardOpacityAnim, {
+        toValue: 0,
+        duration: 300,
+        useNativeDriver: true,
+      }).start(() => {
+        nextCard();
+        cardOpacityAnim.setValue(1);
+        setIsFading(false);
+      });
+      
+    } catch (error) {
+      console.error('Error in handleLike:', error);
+      
+      // Even if there's an error, proceed to next card
+      setIsFading(true);
+      Animated.timing(cardOpacityAnim, {
+        toValue: 0,
+        duration: 300,
+        useNativeDriver: true,
+      }).start(() => {
+        nextCard();
+        cardOpacityAnim.setValue(1);
+        setIsFading(false);
+      });
+    }
+  };
+
+  // Test function to force show popup
+  const testMatchPopup = () => {
+    console.log('SwipeScreen: Testing match popup');
+    console.log('SwipeScreen: Current user:', currentUser);
+    console.log('SwipeScreen: showMatchPopup state:', showMatchPopup);
+    console.log('SwipeScreen: matchedUser state:', matchedUser);
+    if (currentUser) {
+      setMatchedUser(currentUser);
+      setShowMatchPopup(true);
+      console.log('SwipeScreen: Set matchedUser and showMatchPopup to true');
+    }
+  };
+
+  // Test function to simulate a real match
+  const testRealMatch = async () => {
+    console.log('SwipeScreen: Testing real match simulation');
+    if (!currentUser) return;
+    
+    try {
+      const deviceUserId = await DeviceAuthService.getDeviceUserId();
+      console.log('SwipeScreen: Simulating match for user:', currentUser.name);
+      
+      // Simulate a match result
+      const mockMatchResult = {
+        swipe: { id: 'test-swipe' },
+        match: { id: 'test-match', user1_id: deviceUserId, user2_id: currentUser.id },
+        error: null
+      };
+      
+      console.log('SwipeScreen: Mock match result:', mockMatchResult);
+      if (mockMatchResult.match) {
+        console.log('SwipeScreen: MOCK MATCH DETECTED! Showing popup for:', currentUser.name);
+        setMatchedUser(currentUser);
+        setShowMatchPopup(true);
+        console.log('SwipeScreen: Set matchedUser and showMatchPopup from mock');
+      }
+    } catch (error) {
+      console.error('Error in test real match:', error);
+    }
+  };
+
+  const handleDislike = async () => {
+    if (!currentUser) return;
+    
+    try {
+      const deviceUserId = await DeviceAuthService.getDeviceUserId();
+      await MatchingService.recordSwipe(deviceUserId, currentUser.id, 'dislike');
+      
+      // Add fade-out effect
+      setIsFading(true);
+      Animated.timing(cardOpacityAnim, {
+        toValue: 0,
+        duration: 300,
+        useNativeDriver: true,
+      }).start(() => {
+        nextCard();
+        cardOpacityAnim.setValue(1);
+        setIsFading(false);
+      });
+      
+    } catch (error) {
+      console.error('Error recording dislike:', error);
+    }
   };
 
   const nextCard = () => {
-    if (currentUserIndex < mockUsers.length - 1) {
+    if (currentUserIndex < potentialMatches.length - 1) {
       setCurrentUserIndex(currentUserIndex + 1);
       setCurrentPhotoIndex(0);
+      
+      // Preload images for the next user
+      const nextUser = potentialMatches[currentUserIndex + 1];
+      if (nextUser && nextUser.photos && nextUser.photos.length > 0) {
+        preloadImages(nextUser.photos);
+      }
+    } else {
+      // Force the component to re-render with no more profiles state
+      setCurrentUserIndex(potentialMatches.length);
     }
   };
 
   const nextPhoto = () => {
-    if (currentUser && currentPhotoIndex < currentUser.photos.length - 1) {
+    if (currentPhotoIndex < currentUser.photos.length - 1) {
       setCurrentPhotoIndex(currentPhotoIndex + 1);
     }
   };
@@ -152,127 +275,279 @@ const SwipeScreen: React.FC = () => {
     }
   };
 
-  const switchPhoto = (direction: 'left' | 'right' | 'up' | 'down') => {
-    if (direction === 'left' && currentPhotoIndex < currentUser.photos.length - 1) {
-      setCurrentPhotoIndex(currentPhotoIndex + 1);
-    } else if (direction === 'right' && currentPhotoIndex > 0) {
-      setCurrentPhotoIndex(currentPhotoIndex - 1);
-    } else if (direction === 'up' && currentPhotoIndex > 0) {
-      setCurrentPhotoIndex(currentPhotoIndex - 1);
-    } else if (direction === 'down' && currentPhotoIndex < currentUser.photos.length - 1) {
-      setCurrentPhotoIndex(currentPhotoIndex + 1);
-    }
-  };
-
-    const onGestureEvent = (event: any) => {
+  const onGestureEvent = (event: any) => {
     const { translationY, state } = event.nativeEvent;
-
+    
     if (state === State.END) {
       if (translationY < -50) {
-        // Swipe up - go to previous photo
-        switchPhoto('up');
+        previousPhoto();
       } else if (translationY > 50) {
-        // Swipe down - go to next photo
-        switchPhoto('down');
+        nextPhoto();
       }
     }
   };
 
+  const handleMatchClose = () => {
+    setShowMatchPopup(false);
+    setMatchedUser(null);
+    
+    // Proceed to next card after match popup closes
+    setIsFading(true);
+    Animated.timing(cardOpacityAnim, {
+      toValue: 0,
+      duration: 300,
+      useNativeDriver: true,
+    }).start(() => {
+      nextCard();
+      cardOpacityAnim.setValue(1);
+      setIsFading(false);
+    });
+  };
 
+  const handleSendMessage = async () => {
+    if (!matchedUser) return;
+    
+    setShowMatchPopup(false);
+    
+    try {
+      const deviceUserId = await DeviceAuthService.getDeviceUserId();
+      
+      // Find or create the match between the users
+      const { data: existingMatch, error: findError } = await supabase
+        .from('matches')
+        .select('*')
+        .or(`and(user1_id.eq.${deviceUserId},user2_id.eq.${matchedUser.id}),and(user1_id.eq.${matchedUser.id},user2_id.eq.${deviceUserId})`)
+        .single();
 
-  // Safety check to prevent crashes
-  if (!currentUser || currentUserIndex >= mockUsers.length) {
+      if (existingMatch) {
+        console.log('SwipeScreen: Found existing match:', existingMatch.id);
+        // Navigate directly to chat screen with keyboard ready
+        navigation.navigate('Chat', {
+          matchId: existingMatch.id,
+          matchName: matchedUser.name,
+          matchPhoto: matchedUser.photos?.[0] || null,
+          openKeyboard: true // Flag to open keyboard immediately
+        });
+      } else {
+        // Create a new match if it doesn't exist
+        const { data: newMatch, error: createError } = await supabase
+          .from('matches')
+          .insert({
+            user1_id: deviceUserId,
+            user2_id: matchedUser.id
+          })
+          .select()
+          .single();
+
+        if (newMatch) {
+          console.log('SwipeScreen: Created new match:', newMatch.id);
+          // Navigate directly to chat screen with keyboard ready
+          navigation.navigate('Chat', {
+            matchId: newMatch.id,
+            matchName: matchedUser.name,
+            matchPhoto: matchedUser.photos?.[0] || null,
+            openKeyboard: true // Flag to open keyboard immediately
+          });
+        } else {
+          console.error('SwipeScreen: Error creating match:', createError);
+          // Fallback to matches tab if there's an error
+          navigation.navigate('Matches');
+        }
+      }
+    } catch (error) {
+      console.error('SwipeScreen: Error in handleSendMessage:', error);
+      // Fallback to matches tab if there's an error
+      navigation.navigate('Matches');
+    }
+    
+    setMatchedUser(null);
+  };
+
+  const handleDirectMessage = () => {
+    if (!currentUser) return;
+    
+    // Check if user has premium
+    if (!isPremium) {
+      setShowPremiumPopup(true);
+      return;
+    }
+    
+    console.log('SwipeScreen: Direct message to:', currentUser.name);
+    
+    // Create a match first (like regular chat) but mark it as a direct message
+    const createDirectMessageMatch = async () => {
+      try {
+        const deviceUserId = await DeviceAuthService.getDeviceUserId();
+        
+        // Create a match record for direct messaging (just like regular matching)
+        const { data: match, error } = await supabase
+          .from('matches')
+          .insert({
+            user1_id: deviceUserId,
+            user2_id: currentUser.id
+          })
+          .select()
+          .single();
+
+        if (error && error.code !== '23505') { // Ignore duplicate key errors
+          console.log('SwipeScreen: Error creating direct message match:', error);
+          // Try to find existing match
+          const { data: existingMatch } = await supabase
+            .from('matches')
+            .select('*')
+            .or(`and(user1_id.eq.${deviceUserId},user2_id.eq.${currentUser.id}),and(user1_id.eq.${currentUser.id},user2_id.eq.${deviceUserId})`)
+            .single();
+          
+          if (existingMatch) {
+            console.log('SwipeScreen: Found existing match:', existingMatch.id);
+            navigation.navigate('Chat', {
+              matchId: existingMatch.id,
+              matchName: currentUser.name,
+              matchPhoto: currentUser.photos?.[0] || null,
+              isDirectMessage: true
+            });
+            return;
+          }
+        }
+
+        // Navigate to chat screen with the new or existing match
+        if (match?.id) {
+          console.log('SwipeScreen: Created new match:', match.id);
+          navigation.navigate('Chat', {
+            matchId: match.id,
+            matchName: currentUser.name,
+            matchPhoto: currentUser.photos?.[0] || null,
+            isDirectMessage: true
+          });
+        }
+      } catch (error) {
+        console.error('SwipeScreen: Error in direct message setup:', error);
+        // Don't navigate if we can't create a proper match
+        Alert.alert('Error', 'Unable to start direct message. Please try again.');
+      }
+    };
+
+    createDirectMessageMatch();
+  };
+
+  if (isLoading) {
     return (
       <View style={styles.container}>
-        <Text style={styles.noMoreText}>No more profiles to show!</Text>
+        <View style={styles.loadingContainer}>
+          <Text style={styles.loadingText}>Loading profiles...</Text>
+        </View>
       </View>
     );
   }
 
+  if (!currentUser || currentUserIndex >= potentialMatches.length) {
+    return (
+      <View style={styles.container}>
+        <View style={styles.noMoreContainer}>
+          <MaterialIcons name="sentiment-dissatisfied" size={80} color="#666" />
+          <Text style={styles.noMoreTitle}>No more souls left at this time</Text>
+          <Text style={styles.noMoreSubtitle}>Check back later for new matches!</Text>
+        </View>
+      </View>
+    );
+  }
+
+  // Safety check to prevent crashes
+  if (!currentUser) {
+    return (
+      <View style={styles.container}>
+        <Text style={styles.noMoreText}>Profile not available</Text>
+      </View>
+    );
+  }
+
+  // Ensure currentPhotoIndex is within bounds
+  const safePhotoIndex = Math.min(Math.max(0, currentPhotoIndex), currentUser.photos.length - 1);
+
   return (
     <View style={styles.container}>
+      {/* Floating bar background - extends from under profile card */}
+      <View style={styles.floatingBarBackground} />
+      
+      {/* Floating bar above card */}
+      <View style={styles.floatingBar}>
+        <TouchableOpacity 
+          style={styles.floatingBarContent}
+          onPress={handleFloatingBarPress}
+          activeOpacity={0.8}
+        >
+          <View style={styles.floatingBarLeft}>
+            <MaterialIcons 
+              name={floatingBarTexts[floatingBarTextIndex].icon} 
+              size={16} 
+              color="rgba(255, 255, 255, 0.82)" 
+            />
+            <Text style={styles.floatingBarText}>
+              {floatingBarTexts[floatingBarTextIndex].text}
+            </Text>
+          </View>
+        </TouchableOpacity>
+      </View>
       
       <View style={styles.cardContainer}>
-        <View style={styles.card}>
+        <Animated.View style={[styles.card, { opacity: cardOpacityAnim }]}>
           <PanGestureHandler onGestureEvent={onGestureEvent}>
             <Animated.View>
-              <Image 
-                source={{ uri: currentUser.photos[currentPhotoIndex] || currentUser.photos[0] }} 
-                style={styles.cardImage} 
-              />
+              <TouchableOpacity 
+                onPress={() => {}} // Disabled - use the dedicated photo button instead
+                disabled={true}
+                activeOpacity={1}
+              >
+                {currentUser.photos && currentUser.photos.length > 0 && currentUser.photos[safePhotoIndex] ? (
+                  <Image 
+                    source={{ uri: currentUser.photos[safePhotoIndex] }} 
+                    style={styles.cardImage}
+                    resizeMode="cover"
+                    loadingIndicatorSource={null}
+                    progressiveRenderingEnabled={true}
+                    fadeDuration={0}
+                  />
+                ) : (
+                  <View style={styles.noPhotoContainer}>
+                    <MaterialIcons name="person" size={80} color="#666" />
+                    <Text style={styles.noPhotoText}>No photo available</Text>
+                  </View>
+                )}
+              </TouchableOpacity>
             </Animated.View>
           </PanGestureHandler>
           
-          {/* Photo navigation tap areas - left and right only */}
-          <TouchableOpacity 
-            style={styles.leftTapArea} 
-            onPress={previousPhoto}
-            activeOpacity={0.8}
-            delayPressIn={50}
-            delayLongPress={200}
-            onLongPress={() => {}} // Ignore long press
-            pointerEvents="box-none"
-          />
-          <TouchableOpacity 
-            style={styles.rightTapArea} 
-            onPress={nextPhoto}
-            activeOpacity={0.8}
-            delayPressIn={50}
-            delayLongPress={200}
-            onLongPress={() => {}} // Ignore long press
-            pointerEvents="box-none"
-          />
-          
-          {/* Bottom tap areas for photo navigation */}
-          <TouchableOpacity 
-            style={styles.bottomLeftTapArea} 
-            onPress={previousPhoto}
-            activeOpacity={0.8}
-            delayPressIn={50}
-            delayLongPress={200}
-            onLongPress={() => {}} // Ignore long press
-            pointerEvents="box-none"
-          />
-          <TouchableOpacity 
-            style={styles.bottomRightTapArea} 
-            onPress={nextPhoto}
-            activeOpacity={0.8}
-            delayPressIn={50}
-            delayLongPress={200}
-            onLongPress={() => {}} // Ignore long press
-            pointerEvents="box-none"
-          />
+
           
           {/* Photo indicator dots */}
-          <View style={styles.photoIndicator}>
-            {currentUser.photos && currentUser.photos.map((_, index) => (
-              <View
-                key={index}
-                style={[
-                  styles.photoDot,
-                  index === currentPhotoIndex && styles.photoDotActive
-                ]}
-              />
-            ))}
-          </View>
-          
-          {/* Distance indicator */}
-          <View style={styles.distanceIndicator}>
-            <View style={styles.distanceRow}>
-              <MaterialIcons name="location-on" size={16} color="#FFFFFF" style={styles.locationIcon} />
-              <Text style={styles.distanceText}>{currentUser.lastSeen.split(' - ')[0]}</Text>
+          {currentUser.photos && currentUser.photos.length > 0 && (
+            <View style={styles.photoIndicator}>
+              {currentUser.photos.map((_, index) => (
+                <View
+                  key={index}
+                  style={[
+                    styles.photoDot,
+                    index === safePhotoIndex && styles.photoDotActive
+                  ]}
+                />
+              ))}
             </View>
-            <Text style={styles.timeText}>{currentUser.lastSeen.split(' - ')[1]}</Text>
-          </View>
+          )}
           
 
           
           {/* Profile info overlay - same as ProfileScreen */}
+
+          
+          <View
+            style={[styles.cardOverlay, { zIndex: 9999 }]} // Very high z-index to stay in front
+          >
+            {/* Glassmorphism backdrop with fade */}
             <LinearGradient
-              colors={['transparent', 'rgba(0,0,0,0.2)', 'rgba(0,0,0,0.4)', 'rgba(0,0,0,0.6)']}
+              colors={['transparent', 'rgba(0, 0, 0, 0.15)', 'rgba(0, 0, 0, 0.4)', 'rgba(0, 0, 0, 0.6)']}
               locations={[0, 0.3, 0.7, 1]}
-              style={[styles.cardOverlay, { zIndex: 9999 }]} // Very high z-index to stay in front
-            >
+              style={styles.glassBackdrop}
+            />
             <Animated.View 
               style={[
                 styles.cardInfo,
@@ -280,64 +555,124 @@ const SwipeScreen: React.FC = () => {
                 { zIndex: 1000 } // Ensure animated wrapper stays in front
               ]}
             >
-              <ScrollView 
-                ref={scrollViewRef}
-                style={styles.cardInfoScroll}
-                showsVerticalScrollIndicator={true}
-                contentContainerStyle={styles.cardInfoContent}
-                onScroll={(event) => {
-                  const y = event.nativeEvent.contentOffset.y;
-                  setScrollPosition(y);
-                  setIsScrolling(true);
-                  
-                  // Reset to default height when scrolling back to top
-                  if (y <= 0) {
-                    Animated.timing(infoHeightAnim, {
-                      toValue: 200, // Default height
-                      duration: 200,
-                      useNativeDriver: false,
-                    }).start();
-                  }
-                }}
-                onScrollBeginDrag={() => setIsScrolling(true)}
-                onScrollEndDrag={() => {
-                  setTimeout(() => setIsScrolling(false), 100);
-                }}
-                scrollEventThrottle={16}
-                nestedScrollEnabled={true}
-                bounces={true}
+              <View 
+                style={[styles.cardInfoScroll, styles.cardInfoContent]}
               >
-                <Text style={styles.cardName}>
-                  {currentUser.name}, {currentUser.age}
-                </Text>
-                <View style={styles.festivalContainer}>
-                  <Text style={styles.festivalName}>{currentUser.festival}</Text>
+                <View style={styles.nameAgeContainer}>
+                  <View style={styles.nameAgeRow}>
+                    <Text style={styles.cardName}>
+                      {currentUser.name}
+                    </Text>
+                    <Text style={styles.ageSeparator}>, </Text>
+                    <Text style={styles.cardAge}>
+                      {currentUser.age}
+                    </Text>
+                                    </View>
+                  
+                  <View style={styles.festivalContainer}>
+                    <Text style={styles.festivalName}>{currentUser.festival}</Text>
+                  </View>
                 </View>
 
                 <Text style={styles.cardBio}>
-                  <Text style={styles.bioLabel}>Ticket: </Text>{currentUser.ticketType}{'\n'}
-                  <Text style={styles.bioLabel}>Accommodation: </Text>{currentUser.accommodationType}{'\n'}
-                  <Text style={styles.bioText}>- Looking for afterparty buddy</Text>
+                  <Text style={styles.bioLabel}>Ticket: </Text>
+                  <Text style={styles.bioText}>
+                    {currentUser.ticketType}
+                  </Text>
+                                     {'\n'}
+                    <Text style={styles.bioLabel}>   Stay: </Text>
+                  <Text style={styles.bioText}>
+                    {currentUser.accommodationType}
+                  </Text>
                 </Text>
-              </ScrollView>
+                
+                <Text style={styles.bioSection}>
+                  {(() => {
+                    const bioText = currentUser.interests?.join(', ') || '';
+                    if (bioText) {
+                      return (
+                        <>
+                          <Text style={styles.bioQuote}>"</Text>
+                          {bioText}
+                          <Text style={styles.bioQuote}>"</Text>
+                        </>
+                      );
+                    }
+                    return bioText;
+                  })()}
+                </Text>
+              </View>
             </Animated.View>
-          </LinearGradient>
-        </View>
+          </View>
+          
+          {/* Photo navigation tap areas - positioned on top */}
+          <TouchableOpacity 
+            style={styles.leftTapArea} 
+            onPressIn={previousPhoto}
+            activeOpacity={0.8}
+            delayPressIn={0}
+            delayLongPress={200}
+            onLongPress={() => {}} // Ignore long press
+          />
+          <TouchableOpacity 
+            style={styles.rightTapArea} 
+            onPressIn={nextPhoto}
+            activeOpacity={0.8}
+            delayPressIn={0}
+            delayLongPress={200}
+            onLongPress={() => {}} // Ignore long press
+          />
+        </Animated.View>
       </View>
 
+      {/* Like Buttons - Same Position as ProfileScreen Action Buttons */}
       <View style={styles.actionButtons}>
-        <TouchableOpacity style={[styles.actionButton, styles.dislikeButton]} onPress={handleDislike}>
-          <Text style={styles.actionButtonText}>✕</Text>
+        <TouchableOpacity 
+          style={styles.actionButton}
+          onPress={handleDislike}
+          disabled={!currentUser || currentUserIndex >= potentialMatches.length}
+        >
+          <MaterialIcons name="close" size={20} color="rgba(255, 255, 255, 0.82)" />
         </TouchableOpacity>
         
-        <TouchableOpacity style={[styles.actionButton, styles.superLikeButton]}>
-          <IconLodgicons name="1-star" width={20} height={20} color="#FFFFFF" />
+        <TouchableOpacity 
+          style={styles.actionButton}
+          onPress={handleDirectMessage}
+          disabled={!currentUser || currentUserIndex >= potentialMatches.length}
+        >
+          <MaterialIcons name="chat" size={20} color="rgba(255, 255, 255, 0.82)" />
         </TouchableOpacity>
         
-        <TouchableOpacity style={[styles.actionButton, styles.likeButton]} onPress={handleLike}>
-          <Text style={styles.actionButtonText}>♥</Text>
+        <TouchableOpacity 
+          style={styles.actionButton}
+          onPress={handleLike}
+          disabled={!currentUser || currentUserIndex >= potentialMatches.length}
+        >
+          <MaterialIcons name="favorite" size={20} color="rgba(255, 255, 255, 0.82)" />
         </TouchableOpacity>
       </View>
+
+      {/* Match Popup */}
+      {matchedUser && (
+        <MatchPopup
+          isVisible={showMatchPopup}
+          matchedUser={matchedUser}
+          onClose={handleMatchClose}
+          onSendMessage={handleSendMessage}
+        />
+      )}
+
+      {/* Premium Popup */}
+      <PremiumPopup
+        isVisible={showPremiumPopup}
+        onClose={() => setShowPremiumPopup(false)}
+        onUpgrade={() => {
+          setShowPremiumPopup(false);
+          navigation.navigate('Settings' as any);
+        }}
+        title="Premium Feature"
+        message="Direct messaging is a premium feature!"
+      />
     </View>
   );
 };
@@ -345,45 +680,30 @@ const SwipeScreen: React.FC = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#000000',
+    backgroundColor: '#1A1A1A',
   },
-  settingsButton: {
-    position: 'absolute',
-    top: 53,
-    left: 20,
-    zIndex: 1000,
-    padding: 10,
-  },
-  adjustButton: {
-    position: 'absolute',
-    top: 53,
-    right: 20,
-    zIndex: 1000,
-    padding: 10,
-  },
-  adjustIcon: {
-    width: 24,
-    height: 18,
-    justifyContent: 'space-between',
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
     alignItems: 'center',
   },
-  line: {
-    width: 24,
-    height: 2,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 1,
+  loadingText: {
+    color: '#FFFFFF',
+    fontSize: 18,
   },
   cardContainer: {
     flex: 1,
     alignItems: 'center',
-    justifyContent: 'flex-start',
-    paddingTop: 48,
+    justifyContent: 'flex-end',
+    paddingBottom: 173, // Moved up 5px to match ProfileScreen
   },
   card: {
     width: width * 0.9 + 4,
-    height: height * 0.75 + 33,
+    height: height * 0.55 + 96,
     backgroundColor: '#1A1A1A',
     borderRadius: 20,
+    borderWidth: 1.1,
+    borderColor: '#000000',
     shadowColor: '#000',
     shadowOffset: {
       width: 0,
@@ -392,8 +712,8 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.25,
     shadowRadius: 3.84,
     elevation: 5,
-    overflow: 'hidden', // Ensure rounded corners are visible
-    zIndex: 1, // Base z-index for the card
+    overflow: 'hidden',
+    zIndex: 10,
   },
   cardImage: {
     width: '100%',
@@ -401,20 +721,49 @@ const styles = StyleSheet.create({
     resizeMode: 'cover',
     zIndex: 1, // Base z-index for the image
   },
+  noPhotoContainer: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: '#000000',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  noPhotoText: {
+    color: '#999',
+    fontSize: 16,
+    marginTop: 10,
+    textAlign: 'center',
+  },
   cardOverlay: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
-    paddingTop: 20,
-    paddingLeft: 20,
-    paddingRight: 20,
-    // Removed paddingBottom to eliminate safe area bar
+    paddingTop: 0,
+    paddingBottom: 0,
+    paddingLeft: 0,
+    paddingRight: 0,
+    overflow: 'hidden',
     zIndex: 999, // Very high z-index to ensure it stays on top
+  },
+  glassBackdrop: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 200,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: -2,
+    },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 5,
+    zIndex: 1, // Behind the text content
   },
   cardInfo: {
     flex: 1,
-    // Height is now controlled by animation
     zIndex: 1000, // Very high z-index to ensure text stays in front
   },
   cardInfoScroll: {
@@ -422,36 +771,45 @@ const styles = StyleSheet.create({
     zIndex: 1001, // Even higher z-index for scrollable content
   },
   cardInfoContent: {
-    paddingTop: 35, // Add top padding to position text lower in the card
-    // Removed bottom padding to make text extend all the way down
+    paddingTop: 0,
+    paddingLeft: 20,
+    paddingRight: 60,
   },
   nameAgeContainer: {
+    flexDirection: 'column',
+    alignItems: 'flex-start',
+    marginBottom: 5,
+    marginTop: 10,
+  },
+  nameAgeRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'baseline',
+    marginTop: 0,
     marginBottom: 5,
   },
   cardName: {
-    fontSize: 26,
+    fontSize: 25,
     fontWeight: 'bold',
     color: '#fff',
   },
-  cardLocation: {
-    fontSize: 16,
+  ageSeparator: {
+    fontSize: 25,
+    fontWeight: 'bold',
     color: '#fff',
-    marginBottom: 10,
   },
-  locationName: {
-    fontSize: 16,
-    color: '#FFFFFF',
-    fontWeight: '600',
+  cardAge: {
+    fontSize: 25,
+    fontWeight: 'bold',
+    color: '#fff',
   },
   festivalName: {
-    fontSize: 24,
+    fontSize: 22,
     color: '#ff4444',
     fontWeight: 'bold',
     textTransform: 'uppercase',
-    textAlign: 'center',
-    width: '100%',
+    textAlign: 'left',
+    flexWrap: 'wrap',
+    flexShrink: 1,
     textShadowColor: '#000000',
     textShadowOffset: { width: 1, height: 1 },
     textShadowRadius: 1,
@@ -459,144 +817,72 @@ const styles = StyleSheet.create({
   festivalContainer: {
     backgroundColor: 'rgba(255, 107, 107, 0.15)',
     borderRadius: 12,
-    paddingHorizontal: 0,
-    paddingVertical: 1,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
     borderWidth: 1,
     borderColor: 'rgba(255, 107, 107, 0.3)',
     alignItems: 'center',
     justifyContent: 'center',
-    position: 'absolute',
-    top: 34,
-    left: 155,
-    width: 152,
-    zIndex: 10000,
+    marginBottom: 2,
+    marginLeft: -8,
+    marginTop: 0,
     overflow: 'hidden',
-  },
-
-  currentlyAtContainer: {
-    backgroundColor: 'rgba(255, 107, 107, 0.15)',
-    borderRadius: 8,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 107, 107, 0.3)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 4,
-    alignSelf: 'flex-start',
-  },
-  currentlyAtText: {
-    fontSize: 10,
-    color: '#ff4444',
-    fontWeight: '600',
-    marginBottom: 0,
-    textTransform: 'uppercase',
-    textAlign: 'center',
-    width: '100%',
-    textShadowColor: '#000000',
-    textShadowOffset: { width: 1, height: 1 },
-    textShadowRadius: 1,
+    flexWrap: 'wrap',
   },
   cardBio: {
     fontSize: 14,
     color: '#fff',
-    marginBottom: 15,
-    lineHeight: 20,
+    marginBottom: 10,
+    marginTop: -5,
+    lineHeight: 18,
+    fontWeight: 'bold',
+  },
+  bioSection: {
+    fontSize: 17,
+    color: '#fff',
+    marginBottom: 10,
+    marginTop: -5,
+    lineHeight: 21,
+    fontWeight: 'normal',
+  },
+  bioQuote: {
+    fontSize: 17,
+    color: '#ff4444',
+    fontWeight: 'normal',
+    textShadowColor: '#000000',
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 1,
   },
   bioLabel: {
-    fontSize: 14,
-    color: '#ff6b6b',
+    fontSize: 16,
+    color: '#ff4444',
     fontWeight: '600',
+    marginTop: -2,
+    textShadowColor: '#000000',
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 1,
   },
   bioText: {
-    fontSize: 14,
+    fontSize: 15,
     color: '#FFFFFF',
-    lineHeight: 20,
-    marginTop: 5,
+    lineHeight: 19,
+    marginTop: 0,
   },
-  interestsContainer: {
-    flexDirection: 'row',
-  },
-  interestTag: {
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 15,
-    marginRight: 8,
-  },
-  interestText: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: '500',
-  },
-  bottomSection: {
-    paddingBottom: 120,
-    paddingHorizontal: 20,
-  },
-  actionButtons: {
-    position: 'absolute',
-    bottom: 88,
-    left: 0,
-    right: 0,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 28,
-    zIndex: 10000,
-  },
-  actionButton: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 1,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  dislikeButton: {
-    backgroundColor: '#333333',
-    borderWidth: 1,
-    borderColor: '#666666',
-  },
-  superLikeButton: {
-    backgroundColor: '#333333',
-    borderWidth: 1,
-    borderColor: '#666666',
-  },
-  likeButton: {
-    backgroundColor: '#333333',
-    borderWidth: 1,
-    borderColor: '#666666',
-  },
-  actionButtonText: {
-    fontSize: 20,
-    color: '#FFFFFF',
-  },
-  starIcon: {
-    fontSize: 20,
-  },
-
   leftTapArea: {
     position: 'absolute',
     left: 0,
     top: 0,
-    width: width / 2, // Equal width - half each
-    height: '100%', // Cover the entire card including photo and text areas
-    zIndex: 1002, // Higher z-index to ensure taps work over text overlay
+    width: width / 2, // Half the card width
+    height: '100%', // Cover the entire card
+    zIndex: 99999, // Extremely high z-index to ensure taps work over everything
   },
   rightTapArea: {
     position: 'absolute',
     right: 0,
     top: 0,
-    width: width / 2, // Equal width - half each
-    height: '100%', // Cover the entire card including photo and text areas
-    zIndex: 1002, // Higher z-index to ensure taps work over text overlay
+    width: width / 2, // Half the card width
+    height: '100%', // Cover the entire card
+    zIndex: 99999, // Extremely high z-index to ensure taps work over everything
   },
   bottomLeftTapArea: {
     position: 'absolute',
@@ -614,18 +900,108 @@ const styles = StyleSheet.create({
     height: 100, // Fixed height for bottom area
     zIndex: 1002, // Higher z-index to ensure taps work over text overlay
   },
+  festivalTopContainer: {
+    position: 'absolute',
+    top: 20,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 1000,
+  },
+  festivalTopName: {
+    fontSize: 21,
+    color: '#ff4444',
+    fontWeight: 'bold',
+    textTransform: 'uppercase',
+    textAlign: 'center',
+    backgroundColor: 'rgba(255, 107, 107, 0.15)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 107, 107, 0.3)',
+    overflow: 'hidden',
+  },
   photoIndicator: {
     position: 'absolute',
-    top: 24,
+    top: 10,
     left: 0,
     right: 0,
     flexDirection: 'row',
     justifyContent: 'center',
     zIndex: 3,
   },
+  floatingBarBackground: {
+    position: 'absolute',
+    top: 73.7, // Moved down 0.7px
+    left: 21.25,
+    right: 21.25,
+    height: 75, // Extended downward - now 75px tall
+    backgroundColor: 'transparent', // Removed gray background
+    borderTopLeftRadius: 20, // Rounded corners only at top
+    borderTopRightRadius: 20,
+    zIndex: 0, // Behind the profile card
+  },
+  floatingBar: {
+    position: 'absolute',
+    top: 97.7, // Moved down to match ProfileScreen
+    left: 20,
+    right: 20,
+    backgroundColor: 'transparent',
+    borderRadius: 20,
+    paddingHorizontal: 15,
+    paddingVertical: 10,
+    zIndex: 1000,
+  },
+  floatingBarContent: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  floatingBarLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  floatingBarText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '500',
+    opacity: 0.82, // Make text dimmer
+  },
+  floatingBarMap: {
+    backgroundColor: '#000000',
+    borderWidth: 1,
+    borderColor: '#95a5a6',
+    overflow: 'hidden',
+  },
+  floatingBarMapOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: '#34495e',
+  },
+  mapGrid: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 10,
+  },
+  mapGridLine: {
+    width: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+    height: '100%',
+  },
   distanceIndicator: {
     position: 'absolute',
-    top: 50,
+    top: 20,
     left: 0,
     right: 0,
     alignItems: 'center',
@@ -635,23 +1011,25 @@ const styles = StyleSheet.create({
   distanceRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    justifyContent: 'space-between',
     position: 'relative',
+    paddingHorizontal: 20,
+    width: '100%',
   },
   locationIcon: {
     position: 'absolute',
-    left: -18,
+    left: 80,
     top: 0,
   },
   distanceText: {
-    fontSize: 14,
+    fontSize: 16,
     color: '#FFFFFF',
     fontWeight: '600',
     textAlign: 'center',
-    alignSelf: 'center',
+    flex: 1,
   },
   timeText: {
-    fontSize: 12,
+    fontSize: 13,
     color: '#FFFFFF',
     fontWeight: '400',
     textAlign: 'center',
@@ -667,75 +1045,67 @@ const styles = StyleSheet.create({
   photoDotActive: {
     backgroundColor: '#FFFFFF',
   },
-  meetupTile: {
-    position: 'absolute',
-    top: 60,
-    left: '50%',
-    transform: [{ translateX: -40 }],
-    backgroundColor: 'rgba(76, 175, 80, 0.9)',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 4,
-  },
-  meetupText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  noMoreText: {
-    fontSize: 18,
-    color: '#FFFFFF',
-    textAlign: 'center',
-  },
-  nameAgeContainer: {
+  centerLocationContainer: {
     flexDirection: 'row',
-    alignItems: 'baseline',
-    marginBottom: 5,
+    alignItems: 'center',
+    justifyContent: 'center',
     position: 'relative',
+    flex: 1,
   },
-  flagEmoji: {
-    fontSize: 18,
-    marginLeft: 5,
+  actionButtons: {
     position: 'absolute',
-    top: -7,
-    right: 185,
+    bottom: 90,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 23,
+    zIndex: 10000,
   },
-  flagContainer: {
-    backgroundColor: '#1A1A1A',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 20,
-    marginLeft: 12,
-    borderWidth: 0,
+  actionButton: {
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+    backgroundColor: '#333333',
+    borderWidth: 1,
+    borderColor: '#666666',
+    justifyContent: 'center',
+    alignItems: 'center',
     shadowColor: '#000',
     shadowOffset: {
       width: 0,
-      height: 2,
+      height: 1,
     },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 4,
-    // Add a subtle border to make it look more like a tab
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255, 255, 255, 0.1)',
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
   },
-  interestsSection: {
-    marginTop: 15,
+  noMoreContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
   },
-  interestsTitle: {
-    fontSize: 18,
+  noMoreTitle: {
+    fontSize: 24,
     fontWeight: 'bold',
     color: '#fff',
-    marginBottom: 10,
+    marginTop: 20,
+    textAlign: 'center',
+  },
+  noMoreSubtitle: {
+    fontSize: 16,
+    color: '#999',
+    marginTop: 10,
+    textAlign: 'center',
+  },
+  noMoreText: {
+    color: '#fff',
+    fontSize: 18,
+    textAlign: 'center',
+    marginTop: height * 0.3,
   },
 });
 
-export default SwipeScreen; 
+export default SwipeScreen;

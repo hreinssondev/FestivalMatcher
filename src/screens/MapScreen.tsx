@@ -5,152 +5,44 @@ import {
   StyleSheet,
   Dimensions,
   TouchableOpacity,
-  Alert,
   Image,
   ScrollView,
   Animated,
   Modal,
   TextInput,
+  Alert,
 } from 'react-native';
 
 import MapView, { Marker } from 'react-native-maps';
 import * as Location from 'expo-location';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons } from '@expo/vector-icons';
-import Icon from 'react-native-ico-interaction';
 
 import { useProfile } from '../context/ProfileContext';
+import { LocationService } from '../services/locationService';
+import { DeviceAuthService } from '../services/deviceAuthService';
+import { MatchingService } from '../services/matchingService';
+import { User, Match } from '../types';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import UserCountPopup from '../components/UserCountPopup';
+import { useUserCount } from '../context/UserCountContext';
+import { useNavigation } from '@react-navigation/native';
+import { StackNavigationProp } from '@react-navigation/stack';
+import { RootStackParamList } from '../../App';
 
 const { width, height } = Dimensions.get('window');
 
-// Mock user data for nearby users (not matches) - ordered by distance, closest first
-const createMockMapUsers = (profileData: any, userLocation?: any) => {
-  // Default coordinates (will be overridden if user location is available)
-  const baseLat = userLocation?.coords?.latitude || 37.7749;
-  const baseLng = userLocation?.coords?.longitude || -122.4194;
-  
-  return [
-    {
-      id: '7',
-      name: 'Liam',
-      age: 25,
-      festival: profileData.festival,
-      ticketType: profileData.ticketType,
-      accommodationType: profileData.accommodationType,
-      coordinate: {
-        latitude: baseLat + 0.001, // ~0.1 km north
-        longitude: baseLng + 0.001, // ~0.1 km east
-      },
-      photos: [
-        'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=400',
-        'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=400',
-        'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400',
-        'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=400',
-        'https://images.unsplash.com/photo-1494790108755-2616b612b786?w=400'
-      ],
-      lastSeen: '0.5 km away - 2 minutes ago',
-      isPinging: true,
-      allowsDirectMessages: true,
-    },
-    {
-      id: '8',
-      name: 'Zoe',
-      age: 22,
-      festival: profileData.festival,
-      ticketType: profileData.ticketType,
-      accommodationType: profileData.accommodationType,
-      coordinate: {
-        latitude: baseLat - 0.002, // ~0.2 km south
-        longitude: baseLng + 0.002, // ~0.2 km east
-      },
-      photos: [
-        'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400',
-        'https://images.unsplash.com/photo-1494790108755-2616b612b786?w=400',
-        'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=400',
-        'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=400',
-        'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=400'
-      ],
-      lastSeen: '1.2 km away - 5 minutes ago',
-      isPinging: false,
-      allowsDirectMessages: true,
-    },
-    {
-      id: '9',
-      name: 'Marcus',
-      age: 29,
-      festival: profileData.festival,
-      ticketType: profileData.ticketType,
-      accommodationType: profileData.accommodationType,
-      coordinate: {
-        latitude: baseLat + 0.003, // ~0.3 km north
-        longitude: baseLng - 0.001, // ~0.1 km west
-      },
-      photos: [
-        'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=400',
-        'https://images.unsplash.com/photo-1489424731084-a5d8b219a5bb?w=400',
-        'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=400',
-        'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=400',
-        'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400'
-      ],
-      lastSeen: '2.1 km away - 8 minutes ago',
-      isPinging: true,
-      allowsDirectMessages: false,
-    },
-    {
-      id: '10',
-      name: 'Isabella',
-      age: 24,
-      festival: profileData.festival,
-      ticketType: profileData.ticketType,
-      accommodationType: profileData.accommodationType,
-      coordinate: {
-        latitude: baseLat - 0.004, // ~0.4 km south
-        longitude: baseLng - 0.002, // ~0.2 km west
-      },
-      photos: [
-        'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400',
-        'https://images.unsplash.com/photo-1494790108755-2616b612b786?w=400',
-        'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=400',
-        'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=400',
-        'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=400'
-      ],
-      lastSeen: '3.5 km away - 12 minutes ago',
-      isPinging: false,
-      allowsDirectMessages: true,
-    },
-    {
-      id: '11',
-      name: 'Noah',
-      age: 26,
-      festival: profileData.festival,
-      ticketType: profileData.ticketType,
-      accommodationType: profileData.accommodationType,
-      coordinate: {
-        latitude: baseLat + 0.005, // ~0.5 km north
-        longitude: baseLng + 0.003, // ~0.3 km east
-      },
-      photos: [
-        'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=400',
-        'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=400',
-        'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=400',
-        'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400',
-        'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400'
-      ],
-      lastSeen: '4.8 km away - 18 minutes ago',
-      isPinging: true,
-      allowsDirectMessages: true,
-    },
-  ];
-};
-
 const MapScreen: React.FC = () => {
   const { profileData } = useProfile();
+  const { hasUserCountFeature, activateUserCountFeature } = useUserCount();
+  const navigation = useNavigation<StackNavigationProp<RootStackParamList>>();
   const mapRef = useRef<MapView>(null);
   const [location, setLocation] = useState<Location.LocationObject | null>(null);
-  const mockUsers = createMockMapUsers(profileData, location);
+  const [matches, setMatches] = useState<Match[]>([]);
+  const [directMessages, setDirectMessages] = useState<Match[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [selectedUser, setSelectedUser] = useState<any>(null);
+  const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
   const infoHeightAnim = useRef(new Animated.Value(200)).current;
@@ -171,10 +63,20 @@ const MapScreen: React.FC = () => {
   
   // Ping functionality states
   const [isPinging, setIsPinging] = useState(false);
-  const [pingInterval, setPingInterval] = useState(60); // Default 1 minute
+  const [pingInterval, setPingInterval] = useState(3600); // Default 1 hour
   const [showPingSettings, setShowPingSettings] = useState(false);
   const [pingTarget, setPingTarget] = useState('All'); // 'All' or 'Matches'
-  const [isPingControlsCollapsed, setIsPingControlsCollapsed] = useState(false);
+  const [showPingControls, setShowPingControls] = useState(false);
+  const [showUserCountDetails, setShowUserCountDetails] = useState(false);
+  const [showUserCountPopup, setShowUserCountPopup] = useState(false);
+  const [showPremiumPopup, setShowPremiumPopup] = useState(false);
+  const [userCountResults, setUserCountResults] = useState<{
+    totalUsers: number;
+    visibleUsers: number;
+    totalUserPhotos: string[];
+    visibleUserPhotos: string[];
+  } | null>(null);
+  const [isSearchingUsers, setIsSearchingUsers] = useState(false);
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const circleAnims = useRef([
     new Animated.Value(0),
@@ -185,9 +87,55 @@ const MapScreen: React.FC = () => {
   // Ping interval options
   const pingIntervals = [
     { label: 'Real time', value: 1 },
-    { label: '1 min', value: 60 },
-    { label: '5 min', value: 300 }
+    { label: '1h', value: 3600 }
   ];
+
+  // Load matches and direct messages from Supabase (same as MatchesScreen)
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        setIsLoading(true);
+        const deviceUserId = await DeviceAuthService.getDeviceUserId();
+        
+        // Load matches
+        const matchesResult = await MatchingService.getUserMatches(deviceUserId);
+        if (matchesResult.error) {
+          throw matchesResult.error;
+        }
+        setMatches(matchesResult.matches);
+        
+        // Load direct messages (users who sent messages but aren't matched)
+        const dmResult = await MatchingService.getDirectMessages(deviceUserId);
+        if (dmResult.error) {
+          console.error('Error loading direct messages:', dmResult.error);
+          setDirectMessages([]);
+        } else {
+          setDirectMessages(dmResult.messages);
+        }
+      } catch (error) {
+        console.error('Error loading data:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadData();
+  }, []);
+
+  // Auto-hide ping controls after 5 seconds
+  useEffect(() => {
+    let timer: NodeJS.Timeout;
+    
+    if (showPingControls) {
+      timer = setTimeout(() => {
+        setShowPingControls(false);
+      }, 5000);
+    }
+    
+    return () => {
+      if (timer) clearTimeout(timer);
+    };
+  }, [showPingControls]);
 
   // Circle ripple and pulse animation effect
   useEffect(() => {
@@ -264,6 +212,14 @@ const MapScreen: React.FC = () => {
   }, []);
 
   // Center map on user's location when it becomes available
+  // Combine matches and direct messages, showing latest first
+  const allMatches = [...matches, ...directMessages].sort((a, b) => {
+    if (!a.lastMessage && !b.lastMessage) return 0;
+    if (!a.lastMessage) return 1;
+    if (!b.lastMessage) return -1;
+    return new Date(b.lastMessage.timestamp).getTime() - new Date(a.lastMessage.timestamp).getTime();
+  });
+
   useEffect(() => {
     if (location && mapRef.current) {
       mapRef.current.animateToRegion({
@@ -275,17 +231,19 @@ const MapScreen: React.FC = () => {
     }
   }, [location]);
 
-  const handleMarkerPress = (user: any) => {
-    setSelectedUser(user);
-    setCurrentPhotoIndex(0);
-    setShowProfileModal(true);
+  const handleMarkerPress = (match: Match) => {
+    if (!showDeletePopup) {
+      setSelectedUser(match.user);
+      setCurrentPhotoIndex(0);
+      setShowProfileModal(true);
+    }
   };
 
-  const handleCirclePress = (user: any) => {
-    if (mapRef.current) {
+  const handleCirclePress = (match: Match) => {
+    if (mapRef.current && match.user.coordinate) {
       mapRef.current.animateToRegion({
-        latitude: user.coordinate.latitude,
-        longitude: user.coordinate.longitude,
+        latitude: match.user.coordinate.latitude || 0,
+        longitude: match.user.coordinate.longitude || 0,
         latitudeDelta: 0.01,
         longitudeDelta: 0.01,
       }, 1000);
@@ -314,7 +272,7 @@ const MapScreen: React.FC = () => {
   const handleSuggestMeetup = () => {
     setShowProfileModal(false);
     setIsPlacingPin(true);
-    Alert.alert('Place Pin', 'Tap on the map to place a meetup location pin');
+            console.log('Place Pin: Tap on the map to place a meetup location pin');
   };
 
   const handleMapPress = (event: any) => {
@@ -337,10 +295,7 @@ const MapScreen: React.FC = () => {
       message: meetupMessage
     };
     
-    Alert.alert(
-      'Meetup Request Sent!', 
-      `Sent meetup request to ${selectedUser.name} for ${meetupRequest.date} at ${meetupRequest.time}`
-    );
+    console.log(`Meetup Request Sent! Sent meetup request to ${selectedUser.name} for ${meetupRequest.date} at ${meetupRequest.time}`);
     
     // Reset states
     setShowTimeModal(false);
@@ -372,10 +327,7 @@ const MapScreen: React.FC = () => {
   const sendQuickMessage = () => {
     if (!quickMessage.trim() || !selectedUser) return;
     
-    Alert.alert(
-      'Message Sent!', 
-      `Your message "${quickMessage}" has been sent to ${selectedUser.name} and will appear in your chat.`
-    );
+    console.log(`Message Sent! Your message "${quickMessage}" has been sent to ${selectedUser.name} and will appear in your chat.`);
     
     // Reset states
     setShowMessageModal(false);
@@ -387,52 +339,161 @@ const MapScreen: React.FC = () => {
     setQuickMessage('');
   };
 
+  const [longPressTimer, setLongPressTimer] = useState<NodeJS.Timeout | null>(null);
+  const [showDeletePopup, setShowDeletePopup] = useState(false);
+  const [deleteTargetUser, setDeleteTargetUser] = useState<User | null>(null);
+
+  const handleRemoveConnection = async () => {
+    console.log('Long press detected! handleRemoveConnection called for MapScreen');
+    if (!selectedUser) return;
+    
+    setDeleteTargetUser(selectedUser);
+    setShowDeletePopup(true);
+  };
+
+  const confirmDeleteConnection = async () => {
+    if (!deleteTargetUser) return;
+    
+    try {
+      const deviceUserId = await DeviceAuthService.getDeviceUserId();
+      
+      const result = await MatchingService.removeConnection(deviceUserId, deleteTargetUser.id);
+      
+      if (result.success) {
+        closeProfileModal();
+        // Refresh the matches list
+        const deviceUserId = await DeviceAuthService.getDeviceUserId();
+        const matchesResult = await MatchingService.getUserMatches(deviceUserId);
+        if (!matchesResult.error) {
+          setMatches(matchesResult.matches);
+        }
+        const dmResult = await MatchingService.getDirectMessages(deviceUserId);
+        if (!dmResult.error) {
+          setDirectMessages(dmResult.messages);
+        }
+        
+        Alert.alert('Connection Removed', 'The connection has been removed successfully.');
+      } else {
+        Alert.alert('Error', 'Failed to remove connection. Please try again.');
+      }
+    } catch (error) {
+      console.error('Error removing connection:', error);
+      Alert.alert('Error', 'Failed to remove connection. Please try again.');
+    }
+    
+    setShowDeletePopup(false);
+    setDeleteTargetUser(null);
+  };
+
+  const cancelDeleteConnection = () => {
+    setShowDeletePopup(false);
+    setDeleteTargetUser(null);
+  };
+
+  const handlePressIn = () => {
+    console.log('MapScreen: Press in detected');
+    const timer = setTimeout(() => {
+      console.log('MapScreen: Long press timer triggered!');
+      handleRemoveConnection();
+    }, 500);
+    setLongPressTimer(timer);
+  };
+
+  const handlePressOut = () => {
+    console.log('MapScreen: Press out detected');
+    if (longPressTimer) {
+      clearTimeout(longPressTimer);
+      setLongPressTimer(null);
+    }
+  };
+
+  // User count feature functions
+  const searchNearbyUsers = async () => {
+    if (!location) {
+      Alert.alert('Error', 'Location not available. Please enable location services.');
+      return;
+    }
+
+    setIsSearchingUsers(true);
+    try {
+      const deviceUserId = await DeviceAuthService.getDeviceUserId();
+      
+      // Simulate API call to get nearby users within 10km
+      // In a real implementation, this would call your backend API
+      const mockResults = {
+        totalUsers: Math.floor(Math.random() * 50) + 10, // 10-60 users
+        visibleUsers: Math.floor(Math.random() * 30) + 5, // 5-35 users
+        totalUserPhotos: Array.from({ length: Math.floor(Math.random() * 20) + 5 }, (_, i) => 
+          `https://picsum.photos/100/100?random=${i}`
+        ),
+        visibleUserPhotos: Array.from({ length: Math.floor(Math.random() * 15) + 3 }, (_, i) => 
+          `https://picsum.photos/100/100?random=${i + 100}`
+        ),
+      };
+
+      setUserCountResults(mockResults);
+      navigation.navigate('UserCountResults', { userCountResults: mockResults });
+      setShowUserCountDetails(false);
+    } catch (error) {
+      console.error('Error searching nearby users:', error);
+      Alert.alert('Error', 'Failed to search nearby users. Please try again.');
+    } finally {
+      setIsSearchingUsers(false);
+    }
+  };
+
+  const handleUserCountPurchase = () => {
+    activateUserCountFeature();
+    setShowUserCountPopup(false);
+    searchNearbyUsers();
+  };
+
+  const handleShowUserCountResults = () => {
+    if (userCountResults) {
+      navigation.navigate('UserCountResults', { userCountResults });
+    } else {
+      searchNearbyUsers();
+    }
+  };
+
+  // Listen for when user returns from results screen
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('focus', () => {
+      // When returning to MapScreen, hide the user count details
+      setShowUserCountDetails(false);
+      // When returning to MapScreen, ensure we have results to show
+      if (hasUserCountFeature && !userCountResults) {
+        // If user has feature but no results, trigger a search
+        searchNearbyUsers();
+      }
+    });
+
+    return unsubscribe;
+  }, [navigation, hasUserCountFeature, userCountResults]);
+
+  const handleUpdateUserCountSearch = () => {
+    searchNearbyUsers();
+  };
+
   const handlePingLocation = () => {
     if (isPinging) {
-      // Stop pinging - show confirmation dialog
-      Alert.alert(
-        'Stop pinging your location',
-        'Are you sure you want to stop pinging?',
-        [
-          {
-            text: 'Cancel',
-            style: 'cancel',
-          },
-          {
-            text: 'Stop Pinging',
-            onPress: () => {
-              setIsPinging(false);
-              Alert.alert(
-                'Pinging Stopped',
-                'Your location is no longer being shared with other users.'
-              );
-            },
-            style: 'destructive',
-          },
-        ]
-      );
+      // If already pinging, show controls or stop pinging
+      if (showPingControls) {
+        // Stop pinging
+        console.log('Stop pinging your location - Are you sure you want to stop pinging?');
+        setIsPinging(false);
+        setShowPingControls(false);
+        console.log('Pinging Stopped - Your location is no longer being shared with other users.');
+      } else {
+        // Show controls
+        setShowPingControls(true);
+      }
     } else {
       // Start pinging
-      Alert.alert(
-        'Ping your location to others',
-        `Are you sure?\n\nThis will ping your location to other users even if you have not matched yet. Pings will update every ${pingInterval < 60 ? `${pingInterval} seconds` : pingInterval < 3600 ? `${Math.floor(pingInterval / 60)} minutes` : `${Math.floor(pingInterval / 3600)} hour`}.`,
-        [
-          {
-            text: 'Cancel',
-            style: 'cancel',
-          },
-          {
-            text: 'Ping Location',
-            onPress: () => {
-              setIsPinging(true);
-              Alert.alert(
-                'Location Pinged!',
-                `Your location is now visible to other users. Your ping will update automatically every ${pingInterval < 60 ? `${pingInterval} seconds` : pingInterval < 3600 ? `${Math.floor(pingInterval / 60)} minutes` : `${Math.floor(pingInterval / 3600)} hour`}.`
-              );
-            },
-          },
-        ]
-      );
+      console.log(`Ping your location to others - Are you sure? This will ping your location to other users even if you have not matched yet. Pings will update every ${pingInterval < 60 ? `${pingInterval} seconds` : pingInterval < 3600 ? `${Math.floor(pingInterval / 60)} minutes` : `${Math.floor(pingInterval / 3600)} hour`}.`);
+      setIsPinging(true);
+      setShowPingControls(true);
+      console.log(`Location Pinged! Your location is now visible to other users. Your ping will update automatically every ${pingInterval < 60 ? `${pingInterval} seconds` : pingInterval < 3600 ? `${Math.floor(pingInterval / 60)} minutes` : `${Math.floor(pingInterval / 3600)} hour`}.`);
     }
   };
 
@@ -457,19 +518,25 @@ const MapScreen: React.FC = () => {
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.matchScrollContainer}
         >
-          {mockUsers.map((user) => (
+          {allMatches.map((match) => (
             <TouchableOpacity
-              key={user.id}
+              key={match.id}
               style={styles.matchCircleContainer}
-              onPress={() => handleCirclePress(user)}
+              onPress={() => handleCirclePress(match)}
             >
               <View style={styles.matchCircle}>
-                <Image 
-                  source={{ uri: user.photos[0] }} 
-                  style={styles.matchImage}
-                />
+                {match.user.photos && match.user.photos.length > 0 && match.user.photos[0] ? (
+                  <Image 
+                    source={{ uri: match.user.photos[0] }} 
+                    style={styles.matchImage}
+                  />
+                ) : (
+                  <View style={styles.noPhotoContainer}>
+                    <MaterialIcons name="person" size={24} color="#666" />
+                  </View>
+                )}
               </View>
-              <Text style={styles.matchName}>{user.name}</Text>
+              <Text style={styles.matchName}>{match.user.name}</Text>
             </TouchableOpacity>
           ))}
         </ScrollView>
@@ -483,18 +550,24 @@ const MapScreen: React.FC = () => {
         showsMyLocationButton={true}
         onPress={handleMapPress}
       >
-        {mockUsers.map((user) => (
+        {allMatches.map((match) => (
           <Marker
-            key={user.id}
-            coordinate={user.coordinate}
-            onPress={() => handleMarkerPress(user)}
+            key={match.id}
+            coordinate={match.user.coordinate || { latitude: 0, longitude: 0 }}
+            onPress={() => handleMarkerPress(match)}
           >
             <View style={styles.markerContainer}>
               <View style={styles.markerImageContainer}>
-                <Image 
-                  source={{ uri: user.photos[0] }} 
-                  style={styles.markerImage}
-                />
+                {match.user.photos && match.user.photos.length > 0 && match.user.photos[0] ? (
+                  <Image 
+                    source={{ uri: match.user.photos[0] }} 
+                    style={styles.markerImage}
+                  />
+                ) : (
+                  <View style={styles.noPhotoContainer}>
+                    <MaterialIcons name="person" size={20} color="#666" />
+                  </View>
+                )}
               </View>
             </View>
           </Marker>
@@ -516,10 +589,23 @@ const MapScreen: React.FC = () => {
         <View style={styles.profileModal}>
           <TouchableOpacity style={styles.modalBackground} onPress={closeProfileModal} />
           <View style={styles.profileCard}>
-            <Image 
-              source={{ uri: selectedUser.photos[currentPhotoIndex] }} 
-              style={styles.profileImage} 
-            />
+            <TouchableOpacity 
+              onPressIn={handlePressIn}
+              onPressOut={handlePressOut}
+              activeOpacity={0.7}
+            >
+              {selectedUser.photos && selectedUser.photos.length > 0 && selectedUser.photos[currentPhotoIndex] ? (
+                <Image 
+                  source={{ uri: selectedUser.photos[currentPhotoIndex] }} 
+                  style={styles.profileImage} 
+                />
+              ) : (
+                <View style={styles.noPhotoContainer}>
+                  <MaterialIcons name="person" size={80} color="#666" />
+                  <Text style={styles.noPhotoText}>No photo available</Text>
+                </View>
+              )}
+            </TouchableOpacity>
             
             {/* Photo navigation tap areas */}
             <TouchableOpacity 
@@ -534,17 +620,19 @@ const MapScreen: React.FC = () => {
             />
             
             {/* Photo indicator dots */}
-            <View style={styles.photoIndicator}>
-              {selectedUser.photos.map((_: any, index: number) => (
-                <View
-                  key={index}
-                  style={[
-                    styles.photoDot,
-                    index === currentPhotoIndex && styles.photoDotActive
-                  ]}
-                />
-              ))}
-            </View>
+            {selectedUser.photos && selectedUser.photos.length > 0 && (
+              <View style={styles.photoIndicator}>
+                {selectedUser.photos.map((_: any, index: number) => (
+                  <View
+                    key={index}
+                    style={[
+                      styles.photoDot,
+                      index === currentPhotoIndex && styles.photoDotActive
+                    ]}
+                  />
+                ))}
+              </View>
+            )}
             
             {/* Distance indicator */}
             <View style={styles.distanceIndicator}>
@@ -574,7 +662,7 @@ const MapScreen: React.FC = () => {
                   <Text style={styles.profileBio}>
                     <Text style={styles.bioLabel}>Ticket: </Text>{selectedUser.ticketType}{'\n'}
                     <Text style={styles.bioLabel}>Accommodation: </Text>{selectedUser.accommodationType}{'\n'}
-                    <Text style={styles.bioText}>- Looking for afterparty buddy</Text>
+                    <Text style={styles.bioText}>{selectedUser.interests?.join(', ') || ''}</Text>
                   </Text>
                 </ScrollView>
               </Animated.View>
@@ -824,19 +912,10 @@ const MapScreen: React.FC = () => {
         </View>
       )}
 
-      {/* Ping Controls Collapse Button - shown when pinging and not collapsed */}
-      {isPinging && !isPingControlsCollapsed && (
-        <TouchableOpacity 
-          style={styles.collapseButton}
-          onPress={() => setIsPingControlsCollapsed(true)}
-        >
-          <MaterialIcons name="keyboard-arrow-down" size={20} color="#FFFFFF" />
-        </TouchableOpacity>
-      )}
-
-      {/* Ping Target Toggle - shown when pinging and not collapsed */}
-      {isPinging && !isPingControlsCollapsed && (
+      {/* Ping Target Toggle - shown when pinging is active and controls are visible */}
+      {isPinging && showPingControls && (
         <View style={styles.pingTargetContainer}>
+          <Text style={styles.pingTargetTitle}>Who should see your ping?</Text>
           <View style={styles.pingToggleContainer}>
             <TouchableOpacity 
               style={styles.pingToggleTrack}
@@ -859,14 +938,14 @@ const MapScreen: React.FC = () => {
                 styles.pingToggleLabel,
                 styles.pingToggleLabelRight,
                 pingTarget === 'Matches' && styles.pingToggleLabelActive
-              ]}>Matches</Text>
+              ]}>Only Matches</Text>
             </TouchableOpacity>
           </View>
         </View>
       )}
 
-      {/* Ping Interval Slider - shown when pinging and not collapsed */}
-      {isPinging && !isPingControlsCollapsed && (
+      {/* Ping Interval Slider - shown when pinging is active and controls are visible */}
+      {isPinging && showPingControls && (
         <View style={styles.pingSliderContainer}>
           <View style={styles.pingSliderOptions}>
             {pingIntervals.map((interval, index) => (
@@ -896,18 +975,33 @@ const MapScreen: React.FC = () => {
         </View>
       )}
 
-      {/* Bring Up Button - shown when pinging and collapsed */}
-      {isPinging && isPingControlsCollapsed && (
-        <TouchableOpacity 
-          style={styles.bringUpButton}
-          onPress={() => setIsPingControlsCollapsed(false)}
-        >
-          <MaterialIcons name="keyboard-arrow-up" size={20} color="#FFFFFF" />
-        </TouchableOpacity>
-            )}
 
-      {/* Ping Location Button - Old Style */}
-      <View style={styles.pingLocationButton}>
+
+      {/* View Results Button - Only show if user has purchased */}
+      {hasUserCountFeature && (
+        <View style={styles.userCountButtonAbovePing}>
+          <TouchableOpacity 
+            style={styles.viewResultsButton}
+            onPress={handleShowUserCountResults}
+            disabled={isSearchingUsers}
+          >
+            <Text style={styles.viewResultsButtonText}>
+              {isSearchingUsers ? 'Searching...' : 'View Results'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {/* Ping Location Button - Centered */}
+      <View style={[
+        styles.pingLocationButton,
+        isPinging && {
+          marginLeft: -27.5, // Adjust centering when expanded to 55px
+          width: 55,
+          height: 55,
+          borderRadius: 27.5,
+        }
+      ]}>
         {/* Expanding circles */}
         {isPinging && circleAnims.map((anim, index) => (
           <Animated.View
@@ -915,6 +1009,8 @@ const MapScreen: React.FC = () => {
             style={[
               styles.rippleCircle,
               {
+                top: -32.5, // Adjust for 55px button when pinging
+                left: -32.5,
                 borderColor: pingTarget === 'All' ? '#4CAF50' : '#ff4444',
                 transform: [
                   {
@@ -937,25 +1033,70 @@ const MapScreen: React.FC = () => {
           style={[
             styles.pingLocationButtonInner,
             isPinging && {
+              width: 55,
+              height: 55,
+              borderRadius: 27.5,
               transform: [{ scale: pulseAnim }],
               backgroundColor: '#333333', // Brighter gray when pinging
             }
           ]}
         >
           <TouchableOpacity 
-            style={styles.pingLocationButtonTouch}
+            style={[
+              styles.pingLocationButtonTouch,
+              isPinging && {
+                width: 55,
+                height: 55,
+                borderRadius: 27.5,
+              }
+            ]}
             onPress={handlePingLocation}
           >
-            <Icon 
-              name="placeholder-18" 
-              width={22} 
-              height={22} 
+            <MaterialIcons 
+              name="location-on" 
+              size={isPinging ? 24 : 20} 
               color={isPinging ? (pingTarget === 'All' ? '#4CAF50' : '#ff4444') : '#FFFFFF'} 
-              strokeWidth={3}
             />
           </TouchableOpacity>
         </Animated.View>
       </View>
+
+      {/* Custom Delete Popup */}
+      {showDeletePopup && deleteTargetUser && (
+        <View style={styles.deletePopupOverlay}>
+          <View style={styles.deletePopup}>
+            <Text style={styles.deletePopupTitle}>Remove Connection?</Text>
+            <Text style={styles.deletePopupSubtitle}>
+              This will delete all messages with {deleteTargetUser.name}
+            </Text>
+            <View style={styles.deletePopupButtons}>
+              <TouchableOpacity 
+                style={styles.deletePopupCancelButton} 
+                onPress={cancelDeleteConnection}
+              >
+                <Text style={styles.deletePopupCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={styles.deletePopupDeleteButton} 
+                onPress={confirmDeleteConnection}
+              >
+                <Text style={styles.deletePopupDeleteText}>Delete</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      )}
+
+      {/* User Count Popup */}
+      <UserCountPopup
+        isVisible={showUserCountPopup}
+        onClose={() => setShowUserCountPopup(false)}
+        onPurchase={handleUserCountPurchase}
+        userCountResults={userCountResults}
+        onUpdateSearch={handleUpdateUserCountSearch}
+        isSearching={isSearchingUsers}
+      />
+
     </View>
   );
 };
@@ -1185,9 +1326,12 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   bioLabel: {
-    fontSize: 14,
-    color: '#ff6b6b',
+    fontSize: 16,
+    color: '#ff4444',
     fontWeight: '600',
+    textShadowColor: '#000000',
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 1,
   },
   bioText: {
     fontSize: 14,
@@ -1481,8 +1625,8 @@ const styles = StyleSheet.create({
   },
   rippleCircle: {
     position: 'absolute',
-    top: -30, // Center circle around button (60px button, so -30 to center)
-    left: -30,
+    top: -37.5, // Center circle around button (45px button, so -37.5 to center 120px circle)
+    left: -37.5,
     width: 120,
     height: 120,
     borderRadius: 60,
@@ -1491,15 +1635,188 @@ const styles = StyleSheet.create({
     zIndex: 5,
     pointerEvents: 'none', // Allow touches to pass through to button below
   },
-  // Ping Location Button - Old Style
+  // User Count Button Container
+  userCountButtonContainer: {
+    position: 'absolute',
+    bottom: 90,
+    left: '50%',
+    marginLeft: -69.5, // 42px left from center (-27.5 - 42)
+    flexDirection: 'column',
+    alignItems: 'flex-start',
+    zIndex: 10000,
+  },
+  userCountTextContainer: {
+    marginBottom: 0,
+    marginLeft: -110,
+    marginTop: 5,
+    alignItems: 'flex-start',
+    minHeight: 40,
+    justifyContent: 'flex-start',
+    position: 'relative',
+    top: -40,
+    width: 600,
+  },
+  userCountText: {
+    backgroundColor: 'rgba(0, 0, 0, 0.85)',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 15,
+    maxWidth: 180,
+    marginBottom: 8,
+    borderWidth: 2,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.5,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  userCountTextInitial: {
+    position: 'absolute',
+    bottom: 32,
+    left: -3,
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: 'normal',
+    textAlign: 'left',
+    lineHeight: 19,
+    textShadowColor: 'rgba(0, 0, 0, 0.8)',
+    textShadowOffset: {
+      width: 1,
+      height: 1,
+    },
+    textShadowRadius: 3,
+    maxWidth: 500,
+    zIndex: 10000,
+  },
+  userCountTextContent: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: 'bold',
+    textAlign: 'left',
+    lineHeight: 22,
+    textShadowColor: 'rgba(0, 0, 0, 0.8)',
+    textShadowOffset: {
+      width: 1,
+      height: 1,
+    },
+    textShadowRadius: 3,
+    marginBottom: 4,
+    marginTop: 1,
+    marginLeft: 0,
+    maxWidth: 180,
+  },
+  userCountTextSecondary: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: 'normal',
+    textAlign: 'left',
+    lineHeight: 18,
+    textShadowColor: 'rgba(0, 0, 0, 0.8)',
+    textShadowOffset: {
+      width: 1,
+      height: 1,
+    },
+    textShadowRadius: 3,
+    marginBottom: 18,
+    marginLeft: 0,
+    maxWidth: 180,
+  },
+  userCountButtonsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 15,
+    marginTop: 10,
+  },
+  showMeButtonContainer: {
+    position: 'absolute',
+    bottom: -17,
+    left: -1,
+    zIndex: 10000,
+  },
+  userCountButtonAbovePing: {
+    position: 'absolute',
+    bottom: 153,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    zIndex: 10000,
+  },
+  viewResultsButton: {
+    backgroundColor: '#ff4444',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 20,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  viewResultsButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  showMeButton: {
+    backgroundColor: '#FF6B6B',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 15,
+  },
+  showMeButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  textTapArea: {
+    paddingHorizontal: 20,
+    paddingVertical: 15,
+  },
+  yesButton: {
+    position: 'absolute',
+    bottom: -40,
+    left: 4.5,
+    width: 75,
+    height: 75,
+    borderRadius: 37.5,
+    backgroundColor: '#4CAF50',
+    borderWidth: 0.5,
+    borderColor: '#45A049',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 1,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+    zIndex: 10000,
+  },
+  yesButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: 'bold',
+    textAlign: 'center',
+  },
+  // Ping Location Button - Centered
   pingLocationButton: {
     position: 'absolute',
     bottom: 90,
     left: '50%',
-    marginLeft: -27.5, // Half of width to center (55px)
-    width: 55,
-    height: 55,
-    borderRadius: 27.5,
+    marginLeft: -22.5, // Half of width to center (45px)
+    width: 45,
+    height: 45,
+    borderRadius: 22.5,
     shadowColor: '#000',
     shadowOffset: {
       width: 0,
@@ -1511,9 +1828,9 @@ const styles = StyleSheet.create({
     zIndex: 10000,
   },
   pingLocationButtonInner: {
-    width: 55,
-    height: 55,
-    borderRadius: 27.5,
+    width: 45,
+    height: 45,
+    borderRadius: 22.5,
     backgroundColor: '#333333',
     borderWidth: 0.5,
     borderColor: '#666666',
@@ -1522,9 +1839,9 @@ const styles = StyleSheet.create({
     zIndex: 10, // Higher than ripple circles
   },
   pingLocationButtonTouch: {
-    width: 55,
-    height: 55,
-    borderRadius: 27.5,
+    width: 45,
+    height: 45,
+    borderRadius: 22.5,
     justifyContent: 'center',
     alignItems: 'center',
     zIndex: 11, // Highest to ensure touch events work
@@ -1559,7 +1876,7 @@ const styles = StyleSheet.create({
   // Ping target toggle styles
   pingTargetContainer: {
     position: 'absolute',
-    bottom: 192, // Above the interval slider (moved up 1px)
+    bottom: 189, // Move "All" and "Only Matches" toggle down 3px
     left: '50%',
     marginLeft: -65, // Half of width to center (130px wide)
     width: 130,
@@ -1567,12 +1884,19 @@ const styles = StyleSheet.create({
     padding: 6,
     zIndex: 12000,
   },
+  pingTargetTitle: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '500',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
 
   pingToggleContainer: {
     alignItems: 'center',
   },
   pingToggleTrack: {
-    width: 120,
+    width: 151,
     height: 32,
     backgroundColor: '#333333',
     borderRadius: 16,
@@ -1588,8 +1912,8 @@ const styles = StyleSheet.create({
     zIndex: 2,
   },
   pingToggleThumbRight: {
-    left: 42, // Move red thumb even further to the right
-    width: 76, // Adjusted width to fit in moved position
+    left: 44, // Move 1px more to the left for wider thumb
+    width: 105, // Even wider thumb for "Only Matches" text
   },
   pingToggleThumbGreen: {
     backgroundColor: '#4CAF50', // Green for All
@@ -1600,16 +1924,16 @@ const styles = StyleSheet.create({
   },
   pingToggleLabel: {
     position: 'absolute',
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '600',
     color: '#FFFFFF',
     zIndex: 3,
   },
   pingToggleLabelLeft: {
-    left: 14, // Adjusted for shorter green thumb in narrower track
+    left: 14, // Move "All" text 2px to the left
   },
   pingToggleLabelRight: {
-    right: 12, // Moved even further right
+    right: 9, // Move "Only Matches" text 1px less to the right
   },
   pingToggleLabelActive: {
     color: '#FFFFFF',
@@ -1617,7 +1941,7 @@ const styles = StyleSheet.create({
   // Ping slider styles
   pingSliderContainer: {
     position: 'absolute',
-    bottom: 151, // Above the ping button (moved down 1px)
+    bottom: 146, // Move ping pop-up buttons down 5px
     left: '50%',
     marginLeft: -100, // Half of width to center (200px wide)
     width: 200,
@@ -1637,7 +1961,8 @@ const styles = StyleSheet.create({
 
   pingSliderOptions: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'center',
+    gap: 10,
   },
   pingSliderOption: {
     width: '31%',
@@ -1741,7 +2066,93 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     textAlign: 'center',
   },
-
+  noPhotoContainer: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: '#2D2D2D',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 50,
+  },
+  noPhotoText: {
+    color: '#999',
+    fontSize: 16,
+    marginTop: 10,
+    textAlign: 'center',
+  },
+  deletePopupOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 2000,
+  },
+  deletePopup: {
+    backgroundColor: '#1A1A1A',
+    borderRadius: 15,
+    padding: 20,
+    width: width * 0.8,
+    maxWidth: 300,
+    borderWidth: 1,
+    borderColor: '#333',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  deletePopupTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  deletePopupSubtitle: {
+    fontSize: 14,
+    color: '#CCCCCC',
+    textAlign: 'center',
+    marginBottom: 20,
+    lineHeight: 20,
+  },
+  deletePopupButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 15,
+  },
+  deletePopupCancelButton: {
+    flex: 1,
+    backgroundColor: '#333',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  deletePopupDeleteButton: {
+    flex: 1,
+    backgroundColor: '#ff4444',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  deletePopupCancelText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  deletePopupDeleteText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+  },
 });
 
 export default MapScreen; 

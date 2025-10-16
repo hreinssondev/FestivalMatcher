@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -10,6 +10,7 @@ import {
   Modal,
   Dimensions,
   Animated,
+  Alert,
 } from 'react-native';
 import { PanGestureHandler, State } from 'react-native-gesture-handler';
 import { useNavigation } from '@react-navigation/native';
@@ -19,201 +20,131 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { RootStackParamList, Match } from '../types';
 import { formatTime } from '../utils/helpers';
 import { useProfile } from '../context/ProfileContext';
+import { MatchingService } from '../services/matchingService';
+import { DeviceAuthService } from '../services/deviceAuthService';
+
 
 type MatchesScreenNavigationProp = StackNavigationProp<RootStackParamList, 'Main'>;
-
-// Mock matches data - same order as MapScreen (most recent first)
-const createMockMatches = (profileData: any): Match[] => [
-  {
-    id: '2',
-    user: {
-      id: '2',
-      name: 'Mike',
-      age: 28,
-      festival: profileData.festival,
-      ticketType: profileData.ticketType,
-      accommodationType: profileData.accommodationType,
-      photos: [
-        'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400',
-        'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=400',
-        'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=400'
-      ],
-      interests: ['Music', 'Technology', 'Festivals'],
-      lastSeen: '2 km away - 8 minutes ago',
-    },
-    matchedAt: new Date(Date.now() - 24 * 60 * 60 * 1000), // 1 day ago
-    lastMessage: {
-      id: '2',
-      text: 'Thanks for the match! What kind of music do you like?',
-      senderId: 'me',
-      timestamp: new Date(Date.now() - 2 * 60 * 60 * 1000), // 2 hours ago
-      isRead: true,
-    },
-  },
-  {
-    id: '3',
-    user: {
-      id: '3',
-      name: 'Emma',
-      age: 23,
-      festival: profileData.festival,
-      ticketType: profileData.ticketType,
-      accommodationType: profileData.accommodationType,
-      photos: [
-        'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=400',
-        'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=400',
-        'https://images.unsplash.com/photo-1489424731084-a5d8b219a5bb?w=400'
-      ],
-      interests: ['Art', 'Yoga', 'Festivals'],
-      lastSeen: '3 km away - 12 minutes ago',
-    },
-    matchedAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000), // 3 days ago
-    lastMessage: {
-      id: '3',
-      text: 'Would love to see your artwork sometime!',
-      senderId: '3',
-      timestamp: new Date(Date.now() - 6 * 60 * 60 * 1000), // 6 hours ago
-      isRead: false,
-    },
-  },
-  {
-    id: '4',
-    user: {
-      id: '4',
-      name: 'Alex',
-      age: 26,
-      festival: profileData.festival,
-      ticketType: profileData.ticketType,
-      accommodationType: profileData.accommodationType,
-      photos: [
-        'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=400',
-        'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=400',
-        'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400',
-        'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=400',
-        'https://images.unsplash.com/photo-1494790108755-2616b612b786?w=400'
-      ],
-      interests: ['Adventure', 'Food', 'Travel', 'Fitness'],
-      lastSeen: '4 km away - 15 minutes ago',
-    },
-    matchedAt: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000), // 4 days ago
-    lastMessage: {
-      id: '4',
-      text: 'Love your adventure spirit! Want to go hiking?',
-      senderId: '4',
-      timestamp: new Date(Date.now() - 12 * 60 * 60 * 1000), // 12 hours ago
-      isRead: true,
-    },
-  },
-  {
-    id: '5',
-    user: {
-      id: '5',
-      name: 'Sophia',
-      age: 24,
-      festival: profileData.festival,
-      ticketType: profileData.ticketType,
-      accommodationType: profileData.accommodationType,
-      photos: [
-        'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400',
-        'https://images.unsplash.com/photo-1494790108755-2616b612b786?w=400',
-        'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=400',
-        'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=400',
-        'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=400'
-      ],
-      interests: ['Music', 'Art', 'Poetry', 'Nature'],
-      lastSeen: '5 km away - 20 minutes ago',
-    },
-    matchedAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000), // 5 days ago
-    lastMessage: {
-      id: '5',
-      text: 'Your poetry is beautiful! Would love to hear more.',
-      senderId: 'me',
-      timestamp: new Date(Date.now() - 18 * 60 * 60 * 1000), // 18 hours ago
-      isRead: false,
-    },
-  },
-  {
-    id: '6',
-    user: {
-      id: '6',
-      name: 'David',
-      age: 27,
-      festival: profileData.festival,
-      ticketType: profileData.ticketType,
-      accommodationType: profileData.accommodationType,
-      photos: [
-        'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=400',
-        'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400',
-        'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=400',
-        'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=400',
-        'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400'
-      ],
-      interests: ['Photography', 'Coffee', 'Books', 'Travel'],
-      lastSeen: '6 km away - 25 minutes ago',
-    },
-    matchedAt: new Date(Date.now() - 6 * 24 * 60 * 60 * 1000), // 6 days ago
-    lastMessage: {
-      id: '6',
-      text: 'Great taste in coffee! Any recommendations?',
-      senderId: '6',
-      timestamp: new Date(Date.now() - 24 * 60 * 60 * 1000), // 1 day ago
-      isRead: true,
-    },
-  },
-];
 
 const { width, height } = Dimensions.get('window');
 
 const MatchesScreen: React.FC = () => {
   const navigation = useNavigation<MatchesScreenNavigationProp>();
   const { profileData } = useProfile();
-  const mockMatches = createMockMatches(profileData);
+  const [matches, setMatches] = useState<Match[]>([]);
+  const [directMessages, setDirectMessages] = useState<Match[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [selectedMatch, setSelectedMatch] = useState<Match | null>(null);
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
   const [toggleValue, setToggleValue] = useState(0); // 0: All, 1: DM, 2: Matches
   const modalOpacity = useRef(new Animated.Value(0)).current;
   const modalScale = useRef(new Animated.Value(0.8)).current;
+  const [floatingBarTextIndex, setFloatingBarTextIndex] = useState(0); // Start with distance
+  const [longPressTimer, setLongPressTimer] = useState<NodeJS.Timeout | null>(null);
+  const [showDeletePopup, setShowDeletePopup] = useState(false);
+  const [deleteTargetMatch, setDeleteTargetMatch] = useState<Match | null>(null);
+  const [deletePopupPosition, setDeletePopupPosition] = useState({ x: 0, y: 0 });
+
+  // Floating bar texts for profile overlay
+  const floatingBarTexts = [
+    { icon: "location-on" as const, text: `${selectedMatch?.user?.distance || 0} km away` },
+    { icon: "location-on" as const, text: `Show on Map ?` }
+  ];
+
+  // Handle floating bar press for profile overlay
+  const handleFloatingBarPress = () => {
+    if (floatingBarTextIndex === 0) {
+      // First tap: show "Show on Map ?" text
+      setFloatingBarTextIndex(1);
+    } else {
+      // Second tap: navigate to Map tab
+      navigation.navigate('Map' as any);
+    }
+  };
+
+  // Reset text index when selected match changes
+  useEffect(() => {
+    if (selectedMatch) {
+      setFloatingBarTextIndex(0); // Reset to distance text
+    }
+  }, [selectedMatch]);
+  
+
+
+  // Combine matches and direct messages based on toggle value
+  const filteredMatches = (() => {
+    switch (toggleValue) {
+      case 0: // All
+        return [...matches, ...directMessages];
+      case 1: // DM - only show direct messages
+        return directMessages;
+      case 2: // Matches - only show actual matches
+        return matches;
+      default:
+        return [...matches, ...directMessages];
+    }
+  })();
+
+  // Load matches and direct messages from Supabase
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        setIsLoading(true);
+        const deviceUserId = await DeviceAuthService.getDeviceUserId();
+        
+        // Load matches
+        const matchesResult = await MatchingService.getUserMatches(deviceUserId);
+        if (matchesResult.error) {
+          throw matchesResult.error;
+        }
+        setMatches(matchesResult.matches);
+        
+        // Load direct messages (users who sent messages but aren't matched)
+        const dmResult = await MatchingService.getDirectMessages(deviceUserId);
+        if (dmResult.error) {
+          console.error('Error loading direct messages:', dmResult.error);
+          setDirectMessages([]);
+        } else {
+          setDirectMessages(dmResult.messages);
+        }
+      } catch (error) {
+        console.error('Error loading data:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadData();
+  }, []);
 
   const handleMatchPress = (match: Match) => {
+    // Navigate to chat (same for both regular and direct messages)
     navigation.navigate('Chat', {
       matchId: match.id,
       matchName: match.user.name,
       matchPhoto: match.user.photos[0],
+      openKeyboard: true // Always open keyboard when navigating from matches
     });
   };
 
-  const handleCirclePress = (match: Match) => {
-    // Show profile popup instead of navigating to chat
-    setSelectedMatch(match);
-    setCurrentPhotoIndex(0);
-    setShowProfileModal(true);
-    
-    // Animate in
-    Animated.parallel([
-      Animated.timing(modalOpacity, {
-        toValue: 1,
-        duration: 300,
-        useNativeDriver: true,
-      }),
-      Animated.spring(modalScale, {
-        toValue: 1,
-        useNativeDriver: true,
-      }),
-    ]).start();
-  };
+
+
+
+
+
 
   const closeProfileModal = () => {
-    // Animate out slower
+    // Animate out fast
     Animated.parallel([
       Animated.timing(modalOpacity, {
         toValue: 0,
-        duration: 600, // Slower exit animation (600ms instead of default)
+        duration: 150, // Fast exit animation
         useNativeDriver: true,
       }),
       Animated.timing(modalScale, {
         toValue: 0.8,
-        duration: 600,
+        duration: 150,
         useNativeDriver: true,
       }),
     ]).start(() => {
@@ -249,12 +180,105 @@ const MatchesScreen: React.FC = () => {
     }
   };
 
+  const handleRemoveConnection = async (match: Match) => {
+    console.log('Long press detected! handleRemoveConnection called for MatchesScreen');
+    setDeleteTargetMatch(match);
+    setShowDeletePopup(true);
+  };
+
+  const confirmDeleteConnection = async () => {
+    if (!deleteTargetMatch) return;
+    
+    try {
+      const deviceUserId = await DeviceAuthService.getDeviceUserId();
+      
+      const result = await MatchingService.removeConnection(deviceUserId, deleteTargetMatch.user.id);
+      
+      if (result.success) {
+        // Refresh the matches list
+        const deviceUserId = await DeviceAuthService.getDeviceUserId();
+        const matchesResult = await MatchingService.getUserMatches(deviceUserId);
+        if (!matchesResult.error) {
+          setMatches(matchesResult.matches);
+        }
+        const dmResult = await MatchingService.getDirectMessages(deviceUserId);
+        if (!dmResult.error) {
+          setDirectMessages(dmResult.messages);
+        }
+        
+        // Show success message briefly
+        Alert.alert('Connection Removed', 'The connection has been removed successfully.');
+      } else {
+        Alert.alert('Error', 'Failed to remove connection. Please try again.');
+      }
+    } catch (error) {
+      console.error('Error removing connection:', error);
+      Alert.alert('Error', 'Failed to remove connection. Please try again.');
+    }
+    
+    setShowDeletePopup(false);
+    setDeleteTargetMatch(null);
+  };
+
+  const cancelDeleteConnection = () => {
+    setShowDeletePopup(false);
+    setDeleteTargetMatch(null);
+  };
+
+  const handlePressIn = (match: Match) => {
+    console.log('MatchesScreen: Press in detected');
+    const timer = setTimeout(() => {
+      console.log('MatchesScreen: Long press timer triggered!');
+      handleRemoveConnection(match);
+    }, 500);
+    setLongPressTimer(timer);
+  };
+
+  const handlePressOut = () => {
+    console.log('MatchesScreen: Press out detected');
+    if (longPressTimer) {
+      clearTimeout(longPressTimer);
+      setLongPressTimer(null);
+    }
+  };
+
+  const handleCirclePress = (match: Match) => {
+    // Only show profile popup if no delete popup is active
+    if (!showDeletePopup) {
+      setSelectedMatch(match);
+      setCurrentPhotoIndex(0);
+      setShowProfileModal(true);
+      
+      // Animate in
+      Animated.parallel([
+        Animated.timing(modalOpacity, {
+          toValue: 1,
+          duration: 300,
+          useNativeDriver: true,
+        }),
+        Animated.spring(modalScale, {
+          toValue: 1,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }
+  };
+
   const renderMatch = ({ item }: { item: Match }) => (
     <TouchableOpacity
       style={styles.matchItem}
       onPress={() => handleMatchPress(item)}
+      onPressIn={() => handlePressIn(item)}
+      onPressOut={handlePressOut}
+      activeOpacity={0.7}
     >
-      <Image source={{ uri: item.user.photos[0] }} style={styles.matchItemImage} />
+      {item.user.photos && item.user.photos.length > 0 && item.user.photos[0] ? (
+        <Image source={{ uri: item.user.photos[0] }} style={styles.matchItemImage} />
+      ) : (
+        <View style={styles.noPhotoContainer}>
+          <MaterialIcons name="person" size={24} color="#666" />
+        </View>
+      )}
       <View style={styles.matchInfo}>
         <View style={styles.matchItemHeader}>
           <Text style={styles.matchItemName}>
@@ -290,17 +314,26 @@ const MatchesScreen: React.FC = () => {
           decelerationRate={0.8}
           scrollEventThrottle={1}
         >
-          {mockMatches.map((match) => (
+          {filteredMatches.map((match) => (
             <TouchableOpacity
               key={match.id}
               style={styles.matchCircleContainer}
               onPress={() => handleCirclePress(match)}
+              onPressIn={() => handlePressIn(match)}
+              onPressOut={handlePressOut}
+              activeOpacity={0.7}
             >
               <View style={styles.matchCircle}>
-                <Image 
-                  source={{ uri: match.user.photos[0] }} 
-                  style={styles.matchImage}
-                />
+                {match.user.photos && match.user.photos.length > 0 && match.user.photos[0] ? (
+                  <Image 
+                    source={{ uri: match.user.photos[0] }} 
+                    style={styles.matchImage}
+                  />
+                ) : (
+                  <View style={styles.noPhotoContainer}>
+                    <MaterialIcons name="person" size={24} color="#666" />
+                  </View>
+                )}
               </View>
               <Text style={styles.matchName}>{match.user.name}</Text>
             </TouchableOpacity>
@@ -310,6 +343,8 @@ const MatchesScreen: React.FC = () => {
       
       {/* Toggle Buttons */}
       <View style={styles.toggleContainer}>
+        {/* Minimalist background bar */}
+        <View style={styles.toggleBackground} />
         <View style={styles.toggleButtons}>
           <TouchableOpacity 
             style={[
@@ -358,9 +393,9 @@ const MatchesScreen: React.FC = () => {
         </View>
       </View>
       
-      {mockMatches.length > 0 ? (
+      {filteredMatches.length > 0 ? (
         <FlatList
-          data={mockMatches}
+          data={filteredMatches}
           renderItem={renderMatch}
           keyExtractor={(item) => item.id}
           showsVerticalScrollIndicator={false}
@@ -379,99 +414,206 @@ const MatchesScreen: React.FC = () => {
         </View>
       )}
 
-      {/* Profile Modal */}
-      <Modal
-        visible={showProfileModal}
-        animationType="fade"
-        presentationStyle="overFullScreen"
-        onRequestClose={closeProfileModal}
-      >
-        <PanGestureHandler
-          onGestureEvent={onSwipeGesture}
-          onHandlerStateChange={onSwipeGesture}
-          activeOffsetY={10}
-          failOffsetX={[-100, 100]}
-        >
-          <Animated.View style={[
-            styles.profileModalContainer,
-            {
-              opacity: modalOpacity,
-              transform: [{ scale: modalScale }],
-            }
-          ]}>
-            {/* Close Button */}
-            <TouchableOpacity style={styles.profileCloseButton} onPress={closeProfileModal}>
-              <MaterialIcons name="close" size={30} color="#FFFFFF" />
-            </TouchableOpacity>
+      {/* Profile Overlay */}
+      {showProfileModal && selectedMatch && (
+        <Animated.View style={[
+          styles.profileOverlay,
+          {
+            opacity: modalOpacity,
+            transform: [{ scale: modalScale }],
+          }
+        ]}>
+          {/* Close Button */}
+          <TouchableOpacity style={styles.profileCloseButton} onPress={closeProfileModal}>
+            <MaterialIcons name="close" size={30} color="#FFFFFF" />
+          </TouchableOpacity>
 
-            {selectedMatch && (
-              <View style={styles.profileCard}>
-              <Image 
-                source={{ uri: selectedMatch.user.photos[currentPhotoIndex] }} 
-                style={styles.profileCardImage} 
-              />
-              
-              {/* Photo Navigation Areas */}
-              <TouchableOpacity style={styles.leftTapArea} onPress={previousPhoto} />
-              <TouchableOpacity style={styles.rightTapArea} onPress={nextPhoto} />
-              
-              {/* Photo Dots */}
-              <View style={styles.photoIndicator}>
-                {selectedMatch.user.photos.map((_, i) => (
-                  <View
-                    key={i}
-                    style={[
-                      styles.photoDot,
-                      i === currentPhotoIndex ? styles.photoDotActive : null,
-                    ]}
-                  />
-                ))}
-              </View>
-
-              {/* Distance Indicator */}
-              <View style={styles.distanceIndicator}>
-                <View style={styles.distanceRow}>
-                  <MaterialIcons name="location-on" size={20} color="#FFFFFF" style={styles.locationIcon} />
-                  <Text style={styles.distanceText}>1 km away</Text>
-                </View>
-                <Text style={styles.timeText}>6 minutes ago</Text>
-              </View>
-              
-              {/* Profile Info Overlay */}
-              <LinearGradient
-                colors={['transparent', 'rgba(0,0,0,0.6)', 'rgba(0,0,0,0.8)']}
-                style={styles.profileCardOverlay}
+          <View style={styles.profileCard}>
+            {/* Floating bar above card */}
+            <View style={styles.floatingBar}>
+              <TouchableOpacity 
+                style={styles.floatingBarContent}
+                onPress={handleFloatingBarPress}
+                activeOpacity={0.8}
               >
-                <ScrollView
-                  style={styles.profileCardInfoScroll}
-                  showsVerticalScrollIndicator={false}
-                >
-                  <View style={styles.nameAgeContainer}>
-                    <Text style={styles.profileCardName}>
-                      {selectedMatch.user.name}, {selectedMatch.user.age}
-                    </Text>
-                    
-                    <View style={styles.festivalContainer}>
-                      <Text style={styles.festivalName}>{selectedMatch.user.festival}</Text>
-                    </View>
-                  </View>
-
-                  <Text style={styles.profileCardBio}>
-                    <Text style={styles.bioLabel}>Ticket: </Text>
-                    <Text style={styles.bioText}>{selectedMatch.user.ticketType}</Text>
-                    {'\n'}
-                    <Text style={styles.bioLabel}>Accommodation: </Text>
-                    <Text style={styles.bioText}>{selectedMatch.user.accommodationType}</Text>
-                    {'\n'}
-                    <Text style={styles.bioText}>- Looking for afterparty buddy</Text>
-                  </Text>
-                </ScrollView>
-              </LinearGradient>
+                <View style={styles.floatingBarLeft}>
+                  <MaterialIcons name={floatingBarTexts[floatingBarTextIndex].icon} size={16} color="#FFFFFF" />
+                  <Text style={styles.floatingBarText}>{floatingBarTexts[floatingBarTextIndex].text}</Text>
+                </View>
+              </TouchableOpacity>
             </View>
-                      )}
-          </Animated.View>
-        </PanGestureHandler>
-      </Modal>
+            
+            <View style={styles.cardContainer}>
+              <View style={styles.card}>
+                <View>
+                  <TouchableOpacity 
+                    onPress={() => {}} // Disabled - use the dedicated photo button instead
+                    disabled={true}
+                    activeOpacity={1}
+                  >
+                    {selectedMatch.user.photos && selectedMatch.user.photos.length > 0 && selectedMatch.user.photos[currentPhotoIndex] ? (
+                      <Image 
+                        source={{ uri: selectedMatch.user.photos[currentPhotoIndex] }} 
+                        style={styles.cardImage}
+                      />
+                    ) : (
+                      <View style={styles.noPhotoContainer}>
+                        <MaterialIcons name="person" size={80} color="#666" />
+                        <Text style={styles.noPhotoText}>No photo available</Text>
+                      </View>
+                    )}
+                  </TouchableOpacity>
+                </View>
+                
+                {/* Photo navigation tap areas - left and right only */}
+                <TouchableOpacity 
+                  style={styles.leftTapArea} 
+                  onPress={previousPhoto}
+                  activeOpacity={0.8}
+                  delayPressIn={50}
+                  delayLongPress={200}
+                  onLongPress={() => {}} // Ignore long press
+                />
+                <TouchableOpacity 
+                  style={styles.rightTapArea} 
+                  onPress={nextPhoto}
+                  activeOpacity={0.8}
+                  delayPressIn={50}
+                  delayLongPress={200}
+                  onLongPress={() => {}} // Ignore long press
+                />
+                
+                {/* Bottom tap areas for photo navigation */}
+                <TouchableOpacity 
+                  style={styles.bottomLeftTapArea} 
+                  onPress={previousPhoto}
+                  activeOpacity={0.8}
+                  delayPressIn={50}
+                  delayLongPress={200}
+                  onLongPress={() => {}} // Ignore long press
+                />
+                <TouchableOpacity 
+                  style={styles.bottomRightTapArea} 
+                  onPress={nextPhoto}
+                  activeOpacity={0.8}
+                  delayPressIn={50}
+                  delayLongPress={200}
+                  onLongPress={() => {}} // Ignore long press
+                />
+                
+                {/* Photo indicator dots */}
+                {selectedMatch.user.photos && selectedMatch.user.photos.length > 0 && (
+                  <View style={styles.photoIndicator}>
+                    {selectedMatch.user.photos.map((_, index) => (
+                      <View
+                        key={index}
+                        style={[
+                          styles.photoDot,
+                          index === currentPhotoIndex && styles.photoDotActive
+                        ]}
+                      />
+                    ))}
+                  </View>
+                )}
+                
+                {/* Profile info overlay - same as ProfileScreen */}
+                <LinearGradient
+                  colors={['transparent', 'rgba(0,0,0,0.2)', 'rgba(0,0,0,0.4)', 'rgba(0,0,0,0.6)']}
+                  locations={[0, 0.3, 0.7, 1]}
+                  style={[styles.cardOverlay, { zIndex: 9999 }]} // Very high z-index to stay in front
+                >
+                  <View 
+                    style={[
+                      styles.cardInfo,
+                      { zIndex: 1000 } // Ensure animated wrapper stays in front
+                    ]}
+                  >
+                    <ScrollView 
+                      style={styles.cardInfoScroll}
+                      showsVerticalScrollIndicator={true}
+                      contentContainerStyle={styles.cardInfoContent}
+                      scrollEventThrottle={16}
+                      nestedScrollEnabled={true}
+                      bounces={true}
+                    >
+                      <View style={styles.nameAgeContainer}>
+                        <View style={styles.nameAgeRow}>
+                          <Text style={styles.cardName}>
+                            {selectedMatch.user.name}
+                          </Text>
+                          <Text style={styles.ageSeparator}>, </Text>
+                          <Text style={styles.cardAge}>
+                            {selectedMatch.user.age}
+                          </Text>
+                        </View>
+                        
+                        <View style={styles.festivalContainer}>
+                          <Text style={styles.festivalName}>{selectedMatch.user.festival}</Text>
+                        </View>
+                      </View>
+
+                      <Text style={styles.cardBio}>
+                        <Text style={styles.bioLabel}>Ticket: </Text>
+                        <Text style={styles.bioText}>
+                          {selectedMatch.user.ticketType}
+                        </Text>
+                        {'\n'}
+                        <Text style={styles.bioLabel}>   Stay: </Text>
+                        <Text style={styles.bioText}>
+                          {selectedMatch.user.accommodationType}
+                        </Text>
+                      </Text>
+                      
+                      <Text style={styles.bioSection}>
+                        {(() => {
+                          const bioText = selectedMatch.user.interests?.join(', ') || '';
+                          if (bioText) {
+                            return (
+                              <>
+                                <Text style={styles.bioQuote}>"</Text>
+                                {bioText}
+                                <Text style={styles.bioQuote}>"</Text>
+                              </>
+                            );
+                          }
+                          return bioText;
+                        })()}
+                      </Text>
+                    </ScrollView>
+                  </View>
+                </LinearGradient>
+              </View>
+            </View>
+          </View>
+        </Animated.View>
+      )}
+
+      {/* Custom Delete Popup */}
+      {showDeletePopup && deleteTargetMatch && (
+        <View style={styles.deletePopupOverlay}>
+          <View style={styles.deletePopup}>
+            <Text style={styles.deletePopupTitle}>Remove Connection?</Text>
+            <Text style={styles.deletePopupSubtitle}>
+              This will delete all messages with {deleteTargetMatch.user.name}
+            </Text>
+            <View style={styles.deletePopupButtons}>
+              <TouchableOpacity 
+                style={styles.deletePopupCancelButton} 
+                onPress={cancelDeleteConnection}
+              >
+                <Text style={styles.deletePopupCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={styles.deletePopupDeleteButton} 
+                onPress={confirmDeleteConnection}
+              >
+                <Text style={styles.deletePopupDeleteText}>Delete</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      )}
+
     </View>
   );
 };
@@ -486,6 +628,7 @@ const styles = StyleSheet.create({
     paddingTop: 53,
     paddingBottom: 15,
     paddingHorizontal: 20,
+    minHeight: 120, // Ensure minimum height so toggle bar doesn't move when no matches
   },
   matchScrollContainer: {
     paddingVertical: 7,
@@ -591,29 +734,32 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 24,
   },
-  // Profile Modal Styles
-  profileModalContainer: {
-    flex: 1,
-    backgroundColor: '#1A1A1A',
+  // Profile Overlay Styles
+  profileOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 1000,
     justifyContent: 'center',
     alignItems: 'center',
   },
   profileCloseButton: {
     position: 'absolute',
-    top: 60,
+    top: 148,
     right: 20,
     zIndex: 1000,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    borderRadius: 20,
-    width: 40,
-    height: 40,
+    backgroundColor: '#000000',
+    borderRadius: 25,
+    width: 50,
+    height: 50,
     justifyContent: 'center',
     alignItems: 'center',
   },
   profileCard: {
-    width: width * 0.9,
-    height: height * 0.75,
-    borderRadius: 20,
+    width: width,
+    height: height,
     overflow: 'hidden',
     backgroundColor: '#1A1A1A',
   },
@@ -732,8 +878,12 @@ const styles = StyleSheet.create({
     lineHeight: 22,
   },
   bioLabel: {
+    fontSize: 16,
     fontWeight: '600',
-    color: '#fff',
+    color: '#ff4444',
+    textShadowColor: '#000000',
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 1,
   },
   bioText: {
     fontWeight: 'normal',
@@ -745,6 +895,26 @@ const styles = StyleSheet.create({
     paddingVertical: 11,
     paddingHorizontal: 20,
     width: '100%',
+    position: 'relative',
+  },
+  toggleBackground: {
+    position: 'absolute',
+    top: 6,
+    left: 10,
+    right: 10,
+    bottom: 6, // equal spacing top and bottom
+    backgroundColor: 'rgba(51, 51, 51, 0.3)',
+    borderRadius: 20,
+    borderWidth: 0.5,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 1,
+    },
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+    elevation: 2,
   },
   toggleButtons: {
     flexDirection: 'row',
@@ -763,6 +933,218 @@ const styles = StyleSheet.create({
   toggleButtonActive: {
     backgroundColor: '#ff6b6b',
   },
+  // Exact SwipeScreen styles for profile modal
+  cardContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  card: {
+    width: width * 0.9 + 4,
+    height: height * 0.55 + 90,
+    backgroundColor: '#1A1A1A',
+    borderRadius: 20,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+    overflow: 'hidden',
+    zIndex: 1,
+  },
+  cardImage: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
+    zIndex: 1,
+  },
+  noPhotoContainer: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: '#000000',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  noPhotoText: {
+    color: '#999',
+    fontSize: 16,
+    marginTop: 10,
+    textAlign: 'center',
+  },
+  cardOverlay: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    paddingTop: 0,
+    paddingLeft: 0,
+    paddingRight: 20,
+    zIndex: 999,
+  },
+  cardInfo: {
+    flex: 1,
+    zIndex: 1000,
+  },
+  cardInfoScroll: {
+    flex: 1,
+    zIndex: 1001,
+  },
+  cardInfoContent: {
+    paddingTop: 35,
+    paddingLeft: 20,
+    paddingRight: 60,
+  },
+  nameAgeContainer: {
+    flexDirection: 'column',
+    alignItems: 'flex-start',
+    marginBottom: 5,
+    marginTop: 10,
+  },
+  nameAgeRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    marginTop: 0,
+    marginBottom: 5,
+  },
+  cardName: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  ageSeparator: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  cardAge: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  festivalName: {
+    fontSize: 20,
+    color: '#ff4444',
+    fontWeight: 'bold',
+    textTransform: 'uppercase',
+    textAlign: 'left',
+    flexWrap: 'wrap',
+    flexShrink: 1,
+    textShadowColor: '#000000',
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 1,
+  },
+  festivalContainer: {
+    backgroundColor: 'rgba(255, 107, 107, 0.15)',
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 107, 107, 0.3)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 2,
+    marginLeft: -8,
+    marginTop: 0,
+    overflow: 'hidden',
+    flexWrap: 'wrap',
+  },
+  cardBio: {
+    fontSize: 14,
+    color: '#fff',
+    marginBottom: 10,
+    marginTop: -5,
+    lineHeight: 18,
+    fontWeight: 'bold',
+  },
+  bioSection: {
+    fontSize: 17,
+    color: '#fff',
+    marginBottom: 10,
+    marginTop: -5,
+    lineHeight: 21,
+    fontWeight: 'normal',
+  },
+  bioQuote: {
+    fontSize: 17,
+    color: '#ff4444',
+    fontWeight: 'normal',
+    textShadowColor: '#000000',
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 1,
+  },
+  bioLabel: {
+    fontSize: 14,
+    color: '#ff6b6b',
+    fontWeight: '600',
+    marginTop: -5,
+  },
+  bioText: {
+    fontSize: 14,
+    color: '#FFFFFF',
+    lineHeight: 18,
+    marginTop: 0,
+  },
+  leftTapArea: {
+    position: 'absolute',
+    left: 20,
+    top: 0,
+    width: (width / 2) - 20,
+    height: '100%',
+    zIndex: 1002,
+  },
+  rightTapArea: {
+    position: 'absolute',
+    right: 0,
+    top: 0,
+    width: 60,
+    height: '100%',
+    zIndex: 1002,
+  },
+  bottomLeftTapArea: {
+    position: 'absolute',
+    left: 0,
+    bottom: -50,
+    width: width / 2,
+    height: 100,
+    zIndex: 1002,
+  },
+  bottomRightTapArea: {
+    position: 'absolute',
+    right: 0,
+    bottom: -50,
+    width: width / 2,
+    height: 100,
+    zIndex: 1002,
+  },
+  floatingBar: {
+    position: 'absolute',
+    top: 80,
+    left: 20,
+    right: 20,
+    backgroundColor: '#000000',
+    borderRadius: 20,
+    paddingHorizontal: 15,
+    paddingVertical: 10,
+    zIndex: 1000,
+  },
+  floatingBarContent: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  floatingBarLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  floatingBarText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '500',
+  },
   toggleButtonText: {
     fontSize: 14,
     color: '#CCCCCC',
@@ -770,6 +1152,92 @@ const styles = StyleSheet.create({
   },
   toggleButtonTextActive: {
     color: '#FFFFFF',
+    fontWeight: '600',
+  },
+  noPhotoContainer: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: '#2D2D2D',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  noPhotoText: {
+    color: '#999',
+    fontSize: 16,
+    marginTop: 10,
+    textAlign: 'center',
+  },
+  deletePopupOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 2000,
+  },
+  deletePopup: {
+    backgroundColor: '#1A1A1A',
+    borderRadius: 15,
+    padding: 20,
+    width: width * 0.8,
+    maxWidth: 300,
+    borderWidth: 1,
+    borderColor: '#333',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  deletePopupTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  deletePopupSubtitle: {
+    fontSize: 14,
+    color: '#CCCCCC',
+    textAlign: 'center',
+    marginBottom: 20,
+    lineHeight: 20,
+  },
+  deletePopupButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 15,
+  },
+  deletePopupCancelButton: {
+    flex: 1,
+    backgroundColor: '#333',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  deletePopupDeleteButton: {
+    flex: 1,
+    backgroundColor: '#ff4444',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  deletePopupCancelText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  deletePopupDeleteText: {
+    color: '#FFFFFF',
+    fontSize: 16,
     fontWeight: '600',
   },
 });

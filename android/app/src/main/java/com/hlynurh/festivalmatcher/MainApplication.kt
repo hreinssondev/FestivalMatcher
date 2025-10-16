@@ -1,4 +1,4 @@
-package com.anonymous.TinderCloneExpo
+package com.hlynurh.festivalmatcher
 
 import android.app.Application
 import android.content.res.Configuration

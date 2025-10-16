@@ -2,8 +2,8 @@ import { createClient } from '@supabase/supabase-js';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Replace with your Supabase URL and anon key
-const supabaseUrl = 'https://xakjrxqmgcqnzybxaaaf.supabase.co';
-const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhha2pyeHFtZ2Nxbnp5YnhhYWFmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTQ1NzkwNDAsImV4cCI6MjA3MDE1NTA0MH0.yNl_TpTRu-ObFpr-LrHyY_MpjH1TlkpqtPlj2h2UELY';
+const supabaseUrl = 'https://gbsndmddgzruzsdiemfb.supabase.co';
+const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imdic25kbWRkZ3pydXpzZGllbWZiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTYxNDE0NzcsImV4cCI6MjA3MTcxNzQ3N30.6agr3yS-mzFnlVSvk1DpL4AY0ncC1CvR7COab3EO1cM';
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
@@ -14,6 +14,52 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   },
 });
 
+// Test Supabase connection
+export async function testSupabaseConnection() {
+  console.log('Testing Supabase connection...');
+  console.log('URL:', supabaseUrl);
+  console.log('Key (first 20 chars):', supabaseAnonKey.substring(0, 20) + '...');
+  
+  try {
+    // Test 1: Try to query the users table
+    const { data, error } = await supabase
+      .from('users')
+      .select('id')
+      .limit(1);
+    
+    if (error) {
+      console.error('❌ Database connection failed:', error);
+      return { success: false, error: error.message };
+    }
+    
+    console.log('✅ Database connection successful');
+    
+    // Test 2: Try to list storage buckets
+    const { data: buckets, error: storageError } = await supabase.storage.listBuckets();
+    
+    if (storageError) {
+      console.error('❌ Storage connection failed:', storageError);
+      return { success: true, storageWorking: false, error: storageError.message };
+    }
+    
+    console.log('✅ Storage connection successful');
+    console.log('Available buckets:', buckets?.map(b => b.name).join(', ') || 'none');
+    
+    const hasProfilePhotos = buckets?.some(b => b.name === 'profile-photos');
+    console.log('Has profile-photos bucket:', hasProfilePhotos);
+    
+    return { 
+      success: true, 
+      storageWorking: true, 
+      hasProfilePhotosBucket: hasProfilePhotos,
+      buckets: buckets?.map(b => b.name) || []
+    };
+  } catch (error: any) {
+    console.error('❌ Connection test failed:', error);
+    return { success: false, error: error.message };
+  }
+}
+
 // Database types for TypeScript
 export interface Database {
   public: {
@@ -23,6 +69,7 @@ export interface Database {
           id: string;
           name: string;
           age: number;
+          gender: string;
           festival: string;
           ticket_type: string;
           accommodation_type: string;
@@ -40,6 +87,7 @@ export interface Database {
           id?: string;
           name: string;
           age: number;
+          gender: string;
           festival: string;
           ticket_type: string;
           accommodation_type: string;
@@ -57,6 +105,7 @@ export interface Database {
           id?: string;
           name?: string;
           age?: number;
+          gender?: string;
           festival?: string;
           ticket_type?: string;
           accommodation_type?: string;

@@ -1,40 +1,54 @@
 {
   "expo": {
-    "name": "TinderCloneExpo",
-    "slug": "TinderCloneExpo",
+    "name": "FestivalMatcher",
+    "slug": "festival-matcher",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
-    "newArchEnabled": true,
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": false,
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#1A1A1A"
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.anonymous.TinderCloneExpo",
+      "bundleIdentifier": "com.hlynurh.festivalmatcher",
+      "buildNumber": "1",
       "infoPlist": {
         "NSPhotoLibraryUsageDescription": "This app needs access to your photo library to allow you to select and upload profile pictures.",
-        "NSCameraUsageDescription": "This app needs access to your camera to allow you to take profile pictures."
+        "NSCameraUsageDescription": "This app needs access to your camera to allow you to take profile pictures.",
+        "NSLocationWhenInUseUsageDescription": "This app uses your location to find nearby festival-goers and suggest meetup spots.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "This app uses your location to find nearby festival-goers and suggest meetup spots.",
+        "CFBundleDisplayName": "FestivalMatcher",
+        "CFBundleName": "FestivalMatcher",
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "backgroundColor": "#1A1A1A"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.anonymous.TinderCloneExpo",
+      "package": "com.hlynurh.festivalmatcher",
+      "versionCode": 1,
       "permissions": [
         "READ_EXTERNAL_STORAGE",
         "WRITE_EXTERNAL_STORAGE",
-        "CAMERA"
+        "CAMERA",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION"
       ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "78a4c49a-4c27-4aa9-b800-72ad95a12c7d"
+      }
     }
   }
 }

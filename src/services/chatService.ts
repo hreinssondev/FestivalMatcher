@@ -29,6 +29,111 @@ export class ChatService {
     }
   }
 
+  // Send a direct message (without match)
+  static async sendDirectMessage(
+    conversationId: string,
+    senderId: string,
+    recipientId: string,
+    text: string
+  ) {
+    try {
+      console.log('ChatService: Attempting to send direct message:', { conversationId, senderId, recipientId, text });
+      
+      // Try the direct_messages table first
+      const { data, error } = await supabase
+        .from('direct_messages')
+        .insert({
+          conversation_id: conversationId,
+          sender_id: senderId,
+          recipient_id: recipientId,
+          text: text,
+          is_read: false,
+        })
+        .select()
+        .single();
+
+      if (error) {
+        console.log('ChatService: direct_messages table error:', error);
+        
+        // If direct_messages table doesn't exist OR RLS policy blocks insert, fallback to regular messages table
+        if (error.code === '42P01' || error.code === '42501') { // Table doesn't exist OR RLS policy violation
+          console.log('ChatService: Falling back to messages table due to:', error.code === '42P01' ? 'table not found' : 'RLS policy violation');
+          
+          // Generate a deterministic UUID-like string from the conversation ID
+          const generateUuidFromString = (str: string) => {
+            // Simple hash function to create a deterministic ID
+            let hash = 0;
+            for (let i = 0; i < str.length; i++) {
+              const char = str.charCodeAt(i);
+              hash = ((hash << 5) - hash) + char;
+              hash = hash & hash; // Convert to 32bit integer
+            }
+            
+            // Convert to positive number and pad with zeros
+            const hashStr = Math.abs(hash).toString(16).padStart(8, '0');
+            
+            // Create UUID-like format
+            return `${hashStr.substring(0, 8)}-${hashStr.substring(0, 4)}-${hashStr.substring(0, 4)}-${hashStr.substring(0, 4)}-${hashStr.padEnd(12, '0')}`;
+          };
+          
+          const uuid = generateUuidFromString(conversationId);
+          
+          // First, try to create a dummy match record for this direct message conversation
+          try {
+            const { data: existingMatch, error: matchCheckError } = await supabase
+              .from('matches')
+              .select('id')
+              .eq('id', uuid)
+              .single();
+
+            if (matchCheckError && matchCheckError.code === 'PGRST116') {
+              // Match doesn't exist, create a dummy match
+              console.log('ChatService: Creating dummy match for direct message');
+              const { error: matchInsertError } = await supabase
+                .from('matches')
+                .insert({
+                  id: uuid,
+                  user1_id: senderId,
+                  user2_id: recipientId,
+                  is_direct_message: true // Mark as direct message if this column exists
+                });
+
+              if (matchInsertError && matchInsertError.code !== '23505') {
+                // If it's not a duplicate key error, log it but continue
+                console.log('ChatService: Error creating dummy match:', matchInsertError);
+              }
+            }
+          } catch (matchError) {
+            console.log('ChatService: Error checking/creating match:', matchError);
+          }
+          
+          const fallbackResult = await supabase
+            .from('messages')
+            .insert({
+              match_id: uuid, // Use generated UUID
+              sender_id: senderId,
+              text: text,
+              is_read: false,
+            })
+            .select()
+            .single();
+
+          if (fallbackResult.error) throw fallbackResult.error;
+          console.log('ChatService: Message sent via fallback with UUID:', uuid);
+          return { message: fallbackResult.data, error: null };
+        }
+        
+        throw error;
+      }
+      
+      console.log('ChatService: Direct message sent successfully:', data);
+      return { message: data, error: null };
+    } catch (error) {
+      console.error('ChatService: Error sending direct message:', error);
+      return { message: null, error };
+    }
+  }
+
   // Get messages for a match
   static async getMessages(matchId: string, limit: number = 50) {
     try {
@@ -58,11 +163,114 @@ export class ChatService {
         senderId: msg.sender_id,
         isRead: msg.is_read,
         timestamp: new Date(msg.created_at),
-        sender: msg.users!messages_sender_id_fkey,
+        sender: msg.users,
       }));
 
       return { messages, error: null };
     } catch (error) {
+      return { messages: [], error };
+    }
+  }
+
+  // Get direct messages for a conversation
+  static async getDirectMessages(conversationId: string, limit: number = 50) {
+    try {
+      console.log('ChatService: Attempting to get direct messages for:', conversationId);
+      
+      const { data, error } = await supabase
+        .from('direct_messages')
+        .select(`
+          id,
+          text,
+          sender_id,
+          recipient_id,
+          is_read,
+          created_at,
+          users!direct_messages_sender_id_fkey (
+            id,
+            name,
+            photos
+          )
+        `)
+        .eq('conversation_id', conversationId)
+        .order('created_at', { ascending: true })
+        .limit(limit);
+
+      if (error) {
+        console.log('ChatService: direct_messages table error when getting messages:', error);
+        
+        // If direct_messages table doesn't exist OR RLS policy blocks access, fallback to regular messages table
+        if (error.code === '42P01' || error.code === '42501') { // Table doesn't exist OR RLS policy violation
+          console.log('ChatService: Falling back to messages table for retrieval due to:', error.code === '42P01' ? 'table not found' : 'RLS policy violation');
+          
+          // Generate the same deterministic UUID-like string from the conversation ID
+          const generateUuidFromString = (str: string) => {
+            // Simple hash function to create a deterministic ID
+            let hash = 0;
+            for (let i = 0; i < str.length; i++) {
+              const char = str.charCodeAt(i);
+              hash = ((hash << 5) - hash) + char;
+              hash = hash & hash; // Convert to 32bit integer
+            }
+            
+            // Convert to positive number and pad with zeros
+            const hashStr = Math.abs(hash).toString(16).padStart(8, '0');
+            
+            // Create UUID-like format
+            return `${hashStr.substring(0, 8)}-${hashStr.substring(0, 4)}-${hashStr.substring(0, 4)}-${hashStr.substring(0, 4)}-${hashStr.padEnd(12, '0')}`;
+          };
+          
+          const uuid = generateUuidFromString(conversationId);
+          
+          const fallbackResult = await supabase
+            .from('messages')
+            .select(`
+              id,
+              text,
+              sender_id,
+              is_read,
+              created_at,
+              users!messages_sender_id_fkey (
+                id,
+                name,
+                photos
+              )
+            `)
+            .eq('match_id', uuid)
+            .order('created_at', { ascending: true })
+            .limit(limit);
+
+          if (fallbackResult.error) throw fallbackResult.error;
+          
+          const messages = fallbackResult.data.map(msg => ({
+            id: msg.id,
+            text: msg.text,
+            senderId: msg.sender_id,
+            isRead: msg.is_read,
+            timestamp: new Date(msg.created_at),
+            sender: msg.users,
+          }));
+
+          console.log('ChatService: Retrieved messages via fallback:', messages.length);
+          return { messages, error: null };
+        }
+        
+        throw error;
+      }
+
+      const messages = data.map(msg => ({
+        id: msg.id,
+        text: msg.text,
+        senderId: msg.sender_id,
+        isRead: msg.is_read,
+        timestamp: new Date(msg.created_at),
+        sender: msg.users,
+      }));
+
+      console.log('ChatService: Retrieved direct messages:', messages.length);
+      return { messages, error: null };
+    } catch (error) {
+      console.error('ChatService: Error getting direct messages:', error);
       return { messages: [], error };
     }
   }
@@ -216,7 +424,7 @@ export class ChatService {
         .select(`
           id,
           matched_at,
-          users!matches_user1_id_fkey (
+          users_matches_user1_id_fkey (
             id,
             name,
             age,
@@ -227,7 +435,7 @@ export class ChatService {
             photos,
             last_active
           ),
-          users!matches_user2_id_fkey (
+          users_matches_user2_id_fkey (
             id,
             name,
             age,
@@ -261,9 +469,7 @@ export class ChatService {
             .limit(1)
             .single();
 
-          const otherUser = match.user1_id === userId 
-            ? match.users!matches_user2_id_fkey 
-            : match.users!matches_user1_id_fkey;
+                    const otherUser = match.users_matches_user1_id_fkey;
 
           return {
             id: match.id,

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -10,51 +10,38 @@ import {
   Animated,
   TextInput,
   Modal,
+  Alert,
 } from 'react-native';
 import { PanGestureHandler, State } from 'react-native-gesture-handler';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation } from '@react-navigation/native';
-import { StackNavigationProp } from '@react-navigation/stack';
-import { RootStackParamList } from '../../App';
+import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
+import { MainTabParamList } from '../../App';
 import { useProfile } from '../context/ProfileContext';
 import { useOnboarding } from '../context/OnboardingContext';
 import { User } from '../types';
-import IconLodgicons from 'react-native-ico-lodgicons';
-import IconCoolicons from 'react-native-ico-coolicons';
-import IconEssential from 'react-native-ico-essential';
-import IconUIInterface from 'react-native-ico-ui-interface';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
+import { MatchingService } from '../services/matchingService';
+import { PhotoService } from '../services/photoService';
+import { DeviceAuthService } from '../services/deviceAuthService';
 
-type ProfileScreenNavigationProp = StackNavigationProp<RootStackParamList, 'Main'>;
+
+type ProfileScreenNavigationProp = BottomTabNavigationProp<MainTabParamList, 'Profile'>;
 
 const { width, height } = Dimensions.get('window');
 
-// Mock user data - will be updated with profile context
-const createUserFromProfile = (profileData: any): User => ({
-  id: '1',
-  name: profileData.name,
-  age: profileData.age,
-  festival: profileData.festival,
-  ticketType: 'General Admission', // Default
-  accommodationType: profileData.accommodation || 'Not specified',
-  photos: profileData.photos && profileData.photos.length > 0 
-    ? profileData.photos 
-    : [
-        'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400',
-        'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=400',
-        'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=400'
-      ],
-  interests: ['Hiking', 'Coffee', 'Travel', 'Photography', 'Reading', 'Cooking', 'Music', 'Art'],
-  lastSeen: 'Biddinghuizen - 6 minutes ago',
-  distance: 2,
-});
+
 
 const ProfileScreen: React.FC = () => {
   const navigation = useNavigation<ProfileScreenNavigationProp>();
-  const { profileData, updateProfile } = useProfile();
+  const { profileData, updateProfile, refreshProfile } = useProfile();
+  
+  // Debug logging
+
+  
+
   const { resetOnboarding } = useOnboarding();
-  const user = createUserFromProfile(profileData);
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
   const [scrollPosition, setScrollPosition] = useState(0);
   const [isScrolling, setIsScrolling] = useState(false);
@@ -66,10 +53,16 @@ const ProfileScreen: React.FC = () => {
   const [editingField, setEditingField] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
   const [showEditInput, setShowEditInput] = useState(false);
+  const [floatingBarTextIndex, setFloatingBarTextIndex] = useState(0); // Start with location
+  const floatingBarTexts = [
+    { icon: "location-on" as const, text: "Biddinghuizen • 6 min ago" },
+    { icon: "location-on" as const, text: `Show on Map ?` }
+  ];
+
  // Shorter default height
 
   const nextPhoto = () => {
-    if (currentPhotoIndex < user.photos.length - 1) {
+    if (currentPhotoIndex < (profileData.photos?.length || 0) - 1) {
       setCurrentPhotoIndex(currentPhotoIndex + 1);
     }
   };
@@ -93,20 +86,37 @@ const ProfileScreen: React.FC = () => {
   };
 
   const handleEditPress = () => {
-    setIsEditing(!isEditing);
+    navigation.navigate('CompactEdit' as any);
   };
 
   const handleFieldPress = (field: string, currentValue: string) => {
-    if (!isEditing) return;
+    console.log('handleFieldPress called with field:', field, 'currentValue:', currentValue, 'isEditing:', isEditing);
+    if (!isEditing) {
+      console.log('Not in editing mode, ignoring field press');
+      return;
+    }
+    console.log('Setting edit state - field:', field, 'value:', currentValue);
     setEditingField(field);
     setEditValue(currentValue);
     setShowEditInput(true);
+    console.log('Edit modal should now be visible');
   };
 
   const handleSaveEdit = () => {
-    if (editingField && editValue.trim()) {
-      // Convert age to number if editing age field
-      const value = editingField === 'age' ? parseInt(editValue.trim(), 10) || 0 : editValue.trim();
+    console.log('handleSaveEdit called with editingField:', editingField, 'editValue:', editValue);
+    if (editingField && (editValue.trim() || editingField === 'interests')) {
+      let value;
+      if (editingField === 'age') {
+        value = parseInt(editValue.trim(), 10) || 0;
+      } else if (editingField === 'interests') {
+        // Treat bio as a single text entry, not comma-separated
+        // Allow empty array if user wants to clear their bio
+        value = editValue.trim() ? [editValue.trim()] : [];
+        console.log('Processing interests - editValue:', editValue, 'processed value:', value);
+      } else {
+        value = editValue.trim();
+      }
+      console.log('Calling updateProfile with:', { [editingField]: value });
       updateProfile({ [editingField]: value });
     }
     setShowEditInput(false);
@@ -120,71 +130,170 @@ const ProfileScreen: React.FC = () => {
     setEditValue('');
   };
 
-  const handleResetOnboarding = async () => {
-    await resetOnboarding();
+  const handleFloatingBarPress = () => {
+    if (floatingBarTextIndex === 0) {
+      // First tap: show "Show on Map ?" text
+      setFloatingBarTextIndex(1);
+    } else {
+      // Second tap: navigate to Map tab
+      navigation.navigate('Map');
+    }
   };
 
+
+
+  const handleResetOnboarding = () => {
+    resetOnboarding();
+    navigation.navigate('Onboarding' as any);
+  };
+
+  const handleClearSwipes = async () => {
+    try {
+      const result = await MatchingService.clearAllSwipes();
+      if (result.success) {
+        alert('✅ All swipes cleared! Go back to Swipe tab to see profiles again.');
+      } else {
+        alert('❌ Failed to clear swipes');
+      }
+    } catch (error) {
+      console.error('Error clearing swipes:', error);
+      alert('❌ Error clearing swipes');
+    }
+  };
+
+
+
   const handleImagePress = async () => {
-    console.log('handleImagePress called, isEditing:', isEditing);
-    
     if (!isEditing) {
       alert('Please tap the Edit button first to enable photo editing.');
       return;
     }
     
+    // Navigate to onboarding photo edit
+    navigation.navigate('Onboarding' as any);
+  };
+
+  const handleAddPhoto = async () => {
     try {
-      console.log('Checking media library permissions...');
-      
       // Check current permissions first
       const permissionResult = await ImagePicker.getMediaLibraryPermissionsAsync();
-      console.log('Current permission status:', permissionResult.status);
       
       if (permissionResult.status !== 'granted') {
-        console.log('Requesting media library permissions...');
         // Request permissions if not granted
         const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-        console.log('Permission request result:', status);
         
         if (status !== 'granted') {
-          alert('Photo access required!\n\nTo change your profile picture, please allow access to your photos in Settings.');
+          alert('Photo access required!\n\nTo add photos, please allow access to your photos in Settings.');
           return;
         }
       }
 
-      console.log('Launching image picker...');
       // Launch image picker with enhanced options
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
         aspect: [1, 1],
-        quality: 0.9,
+        quality: 1.0, // Full quality now that file size limit is removed
         allowsMultipleSelection: false,
         selectionLimit: 1,
       });
 
-      console.log('Image picker result:', result);
-
       if (!result.canceled && result.assets[0]) {
-        // Here you would typically upload the image to your server
-        // For now, we'll show a success message
-        alert(`Photo selected successfully!\n\nImage: ${result.assets[0].width}x${result.assets[0].height}\n\nIn a real app, this would upload to your server and update your profile.`);
-        console.log('Selected image details:', {
-          uri: result.assets[0].uri,
-          width: result.assets[0].width,
-          height: result.assets[0].height,
-          fileSize: result.assets[0].fileSize,
-        });
+        // Get user ID
+        const deviceUserId = await DeviceAuthService.getDeviceUserId();
+        
+        // Upload photo to Supabase Storage
+        const { url, error } = await PhotoService.uploadPhoto(
+          deviceUserId, 
+          result.assets[0].uri, 
+          profileData.photos?.length || 0
+        );
+        
+        if (error) {
+          console.error('Photo upload failed:', error);
+          alert('Upload Failed\n\nFailed to upload photo. Please check your internet connection and try again.\n\nError: ' + (error.message || error));
+          return;
+        }
+        
+        // Add the new photo URL to the photos array
+        const newPhotos = [...(profileData.photos || []), url];
+        updateProfile({ photos: newPhotos });
+        
+        // Update the database
+        const updateResult = await DeviceAuthService.updateUserProfile({ photos: newPhotos });
+        if (updateResult.error) {
+          console.error('Failed to update profile in database:', updateResult.error);
+          alert('Save Failed\n\nPhoto uploaded but failed to save to your profile. Please try again.');
+          return;
+        }
+        
+        alert('Success!\n\nPhoto added successfully!');
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error accessing photos:', error);
       alert(`Error accessing photos: ${error.message || error}\n\nPlease try again.`);
     }
   };
 
+  const handleRemovePhoto = async () => {
+    if (!profileData.photos || profileData.photos.length === 0) {
+      alert('No photos to remove.');
+      return;
+    }
+
+    Alert.alert(
+      'Remove Photo',
+      'Are you sure you want to remove this photo?',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel'
+        },
+        {
+          text: 'Remove',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const photoToRemove = profileData.photos[safePhotoIndex];
+              const newPhotos = profileData.photos.filter((_, index) => index !== safePhotoIndex);
+              
+              // Update local state first
+              updateProfile({ photos: newPhotos });
+              
+              // Reset photo index if we removed the last photo
+              if (currentPhotoIndex >= newPhotos.length) {
+                setCurrentPhotoIndex(Math.max(0, newPhotos.length - 1));
+              }
+              
+              // Delete from Supabase Storage if it's a Supabase URL
+              if (PhotoService.isSupabaseUrl(photoToRemove)) {
+                const { error } = await PhotoService.deletePhoto(photoToRemove);
+                if (error) {
+                  console.error('Failed to delete photo from storage:', error);
+                  return;
+                }
+              }
+              
+              // Update the database
+              const updateResult = await DeviceAuthService.updateUserProfile({ photos: newPhotos });
+              if (updateResult.error) {
+                console.error('Failed to update profile in database:', updateResult.error);
+                return;
+              }
+            } catch (error) {
+              console.error('Error removing photo:', error);
+              alert('❌ Failed to remove photo. Please try again.');
+            }
+          }
+        }
+      ]
+    );
+  };
+
 
 
   // Safety check to prevent crashes
-  if (!user || !user.photos || user.photos.length === 0) {
+  if (!profileData) {
     return (
       <View style={styles.container}>
         <Text style={styles.noMoreText}>Profile not available</Text>
@@ -193,10 +302,33 @@ const ProfileScreen: React.FC = () => {
   }
 
   // Ensure currentPhotoIndex is within bounds
-  const safePhotoIndex = Math.min(Math.max(0, currentPhotoIndex), user.photos.length - 1);
+  const safePhotoIndex = Math.min(Math.max(0, currentPhotoIndex), (profileData.photos?.length || 0) - 1);
 
     return (
     <View style={styles.container}>
+      {/* Floating bar background - extends from under profile card */}
+      <View style={styles.floatingBarBackground} />
+      
+      {/* Floating bar above card */}
+      <View style={styles.floatingBar}>
+        <TouchableOpacity 
+          style={styles.floatingBarContent}
+          onPress={handleFloatingBarPress}
+          activeOpacity={0.8}
+        >
+          <View style={styles.floatingBarLeft}>
+            <MaterialIcons 
+              name={floatingBarTexts[floatingBarTextIndex].icon} 
+              size={16} 
+              color="rgba(255, 255, 255, 0.82)" 
+            />
+            <Text style={styles.floatingBarText}>
+              {floatingBarTexts[floatingBarTextIndex].text}
+            </Text>
+          </View>
+        </TouchableOpacity>
+      </View>
+      
       <View style={styles.cardContainer}>
         <View style={styles.card}>
           <PanGestureHandler onGestureEvent={onGestureEvent}>
@@ -206,85 +338,49 @@ const ProfileScreen: React.FC = () => {
                 disabled={true}
                 activeOpacity={1}
               >
-                <Image 
-                  source={{ uri: user.photos[safePhotoIndex] || user.photos[0] }} 
-                  style={styles.cardImage} 
-                />
+                {profileData.photos && profileData.photos.length > 0 && profileData.photos[safePhotoIndex] ? (
+                  <Image 
+                    source={{ uri: profileData.photos[safePhotoIndex] }} 
+                    style={styles.cardImage}
+
+                  />
+                ) : (
+                  <View style={styles.noPhotoContainer}>
+                    <MaterialIcons name="person" size={80} color="#666" />
+                    <Text style={styles.noPhotoText}>No photo available</Text>
+                  </View>
+                )}
 
               </TouchableOpacity>
             </Animated.View>
           </PanGestureHandler>
           
-          {/* Photo navigation tap areas - left and right only */}
-          <TouchableOpacity 
-            style={styles.leftTapArea} 
-            onPress={previousPhoto}
-            activeOpacity={0.8}
-            delayPressIn={50}
-            delayLongPress={200}
-            onLongPress={() => {}} // Ignore long press
-            pointerEvents="box-none"
-          />
-          <TouchableOpacity 
-            style={styles.rightTapArea} 
-            onPress={nextPhoto}
-            activeOpacity={0.8}
-            delayPressIn={50}
-            delayLongPress={200}
-            onLongPress={() => {}} // Ignore long press
-            pointerEvents="box-none"
-          />
-          
-          {/* Bottom tap areas for photo navigation */}
-          <TouchableOpacity 
-            style={styles.bottomLeftTapArea} 
-            onPress={previousPhoto}
-            activeOpacity={0.8}
-            delayPressIn={50}
-            delayLongPress={200}
-            onLongPress={() => {}} // Ignore long press
-            pointerEvents="box-none"
-          />
-          <TouchableOpacity 
-            style={styles.bottomRightTapArea} 
-            onPress={nextPhoto}
-            activeOpacity={0.8}
-            delayPressIn={50}
-            delayLongPress={200}
-            onLongPress={() => {}} // Ignore long press
-            pointerEvents="box-none"
-          />
+
           
           {/* Photo indicator dots */}
-          <View style={styles.photoIndicator}>
-            {user.photos && user.photos.map((_, index) => (
-              <View
-                key={index}
-                style={[
-                  styles.photoDot,
-                  index === safePhotoIndex && styles.photoDotActive
-                ]}
-              />
-            ))}
-          </View>
-          
-          {/* Distance indicator */}
-          <View style={styles.distanceIndicator}>
-            <View style={styles.distanceRow}>
-              <View style={styles.centerLocationContainer}>
-                <MaterialIcons name="location-on" size={18} color="#FFFFFF" style={styles.locationIcon} />
-                <Text style={styles.distanceText}>{user.lastSeen.split(' - ')[0]}</Text>
-              </View>
+          {profileData.photos && profileData.photos.length > 0 && (
+            <View style={styles.photoIndicator}>
+              {profileData.photos.map((_: any, index: number) => (
+                <View
+                  key={index}
+                  style={[
+                    styles.photoDot,
+                    index === safePhotoIndex && styles.photoDotActive
+                  ]}
+                />
+              ))}
             </View>
-            <Text style={styles.timeText}>{user.lastSeen.split(' - ')[1]}</Text>
-          </View>
+          )}
+          
+
           
           {/* Profile info overlay - same as SwipeScreen */}
-          <LinearGradient
-            colors={['transparent', 'rgba(0,0,0,0.2)', 'rgba(0,0,0,0.4)', 'rgba(0,0,0,0.6)']}
-            locations={[0, 0.3, 0.7, 1]}
+
+          
+          <View
             style={[styles.cardOverlay, { zIndex: 9999 }]} // Very high z-index to stay in front
           >
+
             <Animated.View 
               style={[
                 styles.cardInfo,
@@ -292,115 +388,114 @@ const ProfileScreen: React.FC = () => {
                 { zIndex: 1000 } // Ensure animated wrapper stays in front
               ]}
             >
-              <ScrollView 
-                ref={scrollViewRef}
-                style={styles.cardInfoScroll}
-                showsVerticalScrollIndicator={true}
-                contentContainerStyle={styles.cardInfoContent}
-                onScroll={(event) => {
-                  const y = event.nativeEvent.contentOffset.y;
-                  setScrollPosition(y);
-                  setIsScrolling(true);
-                  
-                  // Reset to default height when scrolling back to top
-                  if (y <= 0) {
-                    Animated.timing(infoHeightAnim, {
-                      toValue: 200, // Default height
-                      duration: 200,
-                      useNativeDriver: false,
-                    }).start();
-                  }
-                }}
-                onScrollBeginDrag={() => setIsScrolling(true)}
-                onScrollEndDrag={() => {
-                  setTimeout(() => setIsScrolling(false), 100);
-                }}
-                scrollEventThrottle={16}
-                nestedScrollEnabled={true}
-                bounces={true}
+                              {/* Glassmorphism backdrop with fade */}
+                <LinearGradient
+                  colors={['transparent', 'rgba(0, 0, 0, 0.15)', 'rgba(0, 0, 0, 0.4)', 'rgba(0, 0, 0, 0.6)']}
+                  locations={[0, 0.3, 0.7, 1]}
+                  style={styles.glassBackdrop}
+                />
+              <View 
+                style={[styles.cardInfoScroll, styles.cardInfoContent]}
               >
                 <View style={styles.nameAgeContainer}>
                   <View style={styles.nameAgeRow}>
-                    <TouchableOpacity onPress={() => handleFieldPress('name', user.name)} disabled={!isEditing}>
-                      <Text style={[styles.cardName, isEditing && styles.editableField]}>
-                        {user.name}
-                      </Text>
-                    </TouchableOpacity>
+                    <Text style={styles.cardName}>
+                      {profileData.name}
+                    </Text>
                     <Text style={styles.ageSeparator}>, </Text>
-                    <TouchableOpacity onPress={() => handleFieldPress('age', user.age.toString())} disabled={!isEditing}>
-                      <Text style={[styles.cardAge, isEditing && styles.editableField]}>
-                        {user.age}
-                      </Text>
-                    </TouchableOpacity>
+                    <Text style={styles.cardAge}>
+                      {profileData.age}
+                    </Text>
                   </View>
                   
-                  <TouchableOpacity onPress={() => handleFieldPress('festival', user.festival)} disabled={!isEditing}>
-                    <View style={[styles.festivalContainer, isEditing && styles.editableField]}>
-                      <Text style={styles.festivalName}>{user.festival}</Text>
-                    </View>
-                  </TouchableOpacity>
+                  <View style={styles.festivalContainer}>
+                    <Text style={styles.festivalName}>{profileData.festival}</Text>
+                  </View>
                 </View>
 
                 <Text style={styles.cardBio}>
                   <Text style={styles.bioLabel}>Ticket: </Text>
-                  <Text 
-                    style={[styles.bioText, isEditing && styles.editableField]} 
-                    onPress={() => handleFieldPress('ticketType', user.ticketType)}
-                  >
-                    {user.ticketType}
+                  <Text style={styles.bioText}>
+                    {profileData.ticketType}
                   </Text>
                   {'\n'}
-                  <Text style={styles.bioLabel}>Accommodation: </Text>
-                  <Text 
-                    style={[styles.bioText, isEditing && styles.editableField]} 
-                    onPress={() => handleFieldPress('accommodationType', user.accommodationType)}
-                  >
-                    {user.accommodationType}
-                  </Text>
-                  {'\n'}
-                  <Text 
-                    style={[styles.bioText, isEditing && styles.editableField]} 
-                    onPress={() => handleFieldPress('bio', 'Looking for afterparty buddy')}
-                  >
-                    - Looking for afterparty buddy
+                  <Text style={styles.bioLabel}>   Stay: </Text>
+                  <Text style={styles.bioText}>
+                    {profileData.accommodation}
                   </Text>
                 </Text>
-              </ScrollView>
+                
+                <Text style={styles.bioSection}>
+                  {(() => {
+                    const bioText = profileData.interests?.join(', ') || '';
+                    if (bioText) {
+                      return (
+                        <>
+                          <Text style={styles.bioQuote}>"</Text>
+                          {bioText}
+                          <Text style={styles.bioQuote}>"</Text>
+                        </>
+                      );
+                    }
+                    return bioText;
+                  })()}
+                </Text>
+              </View>
             </Animated.View>
-          </LinearGradient>
+          </View>
+          
+          {/* Photo navigation tap areas - positioned on top */}
+          <TouchableOpacity 
+            style={styles.leftTapArea} 
+            onPressIn={previousPhoto}
+            activeOpacity={0.8}
+            delayPressIn={0}
+            delayLongPress={200}
+            onLongPress={() => {}} // Ignore long press
+          />
+          <TouchableOpacity 
+            style={styles.rightTapArea} 
+            onPressIn={nextPhoto}
+            activeOpacity={0.8}
+            delayPressIn={0}
+            delayLongPress={200}
+            onLongPress={() => {}} // Ignore long press
+          />
         </View>
+        
+
       </View>
 
 
 
       {/* Edit Profile Button - overlaid on card */}
-      <TouchableOpacity style={styles.editProfileButton} onPress={() => navigation.navigate('EditProfile')}>
+      <TouchableOpacity style={styles.editProfileButton} onPress={() => navigation.navigate('EditProfile' as any)}>
         <Text style={styles.editProfileButtonText}>
           Edit Profile
         </Text>
       </TouchableOpacity>
 
-      {/* Settings and Adjust Buttons - Same Position as SwipeScreen Action Buttons */}
+      {/* Action Buttons - Same as SwipeScreen */}
       <View style={styles.actionButtons}>
         <TouchableOpacity 
           style={styles.actionButton}
-          onPress={() => navigation.navigate('Settings')}
+          onPress={handleClearSwipes}
         >
-          <IconEssential name="settings-5" width={20} height={20} color="#FFFFFF" />
+          <MaterialIcons name="delete-sweep" size={20} color="rgba(255, 255, 255, 0.82)" />
         </TouchableOpacity>
         
         <TouchableOpacity 
-          style={styles.actionButton}
+          style={[styles.actionButton, isEditing && styles.editButtonActive]}
           onPress={handleEditPress}
         >
-          <IconEssential name="edit-1" width={20} height={20} color="#FFFFFF" />
+          <MaterialIcons name="edit" size={20} color={isEditing ? "#666666" : "rgba(255, 255, 255, 0.82)"} />
         </TouchableOpacity>
 
         <TouchableOpacity 
           style={styles.actionButton}
-          onPress={handleResetOnboarding}
+          onPress={() => navigation.navigate('Settings' as any)}
         >
-          <MaterialIcons name="refresh" size={20} color="#FFFFFF" />
+          <MaterialIcons name="settings" size={20} color="rgba(255, 255, 255, 0.82)" />
         </TouchableOpacity>
 
       </View>
@@ -412,7 +507,7 @@ const ProfileScreen: React.FC = () => {
           onPress={handleImagePress}
         >
           <MaterialIcons name="camera-alt" size={30} color="#FFFFFF" />
-          <Text style={styles.photoPickerButtonText}>Change Photo</Text>
+          <Text style={styles.photoPickerButtonText}>Change Photos</Text>
         </TouchableOpacity>
       )}
 
@@ -448,7 +543,10 @@ const ProfileScreen: React.FC = () => {
                 </TouchableOpacity>
                 <TouchableOpacity 
                   style={[styles.editModalButton, styles.saveEditButton]} 
-                  onPress={handleSaveEdit}
+                  onPress={() => {
+                    console.log('Save button pressed!');
+                    handleSaveEdit();
+                  }}
                 >
                   <Text style={styles.saveEditButtonText}>Save</Text>
                 </TouchableOpacity>
@@ -464,20 +562,22 @@ const ProfileScreen: React.FC = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#000000',
+    backgroundColor: '#1A1A1A',
   },
 
   cardContainer: {
     flex: 1,
     alignItems: 'center',
-    justifyContent: 'flex-start',
-    paddingTop: 48,
+    justifyContent: 'flex-end',
+    paddingBottom: 173, // Moved up 5px (168 + 5)
   },
   card: {
     width: width * 0.9 + 4,
-    height: height * 0.75 + 33,
+    height: height * 0.55 + 96,
     backgroundColor: '#1A1A1A',
     borderRadius: 20,
+    borderWidth: 1.1,
+    borderColor: '#000000',
     shadowColor: '#000',
     shadowOffset: {
       width: 0,
@@ -487,7 +587,7 @@ const styles = StyleSheet.create({
     shadowRadius: 3.84,
     elevation: 5,
     overflow: 'hidden',
-    zIndex: 1,
+    zIndex: 10,
   },
   cardImage: {
     width: '100%',
@@ -546,11 +646,28 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    paddingTop: 20,
-    paddingLeft: 20,
-    paddingRight: 20,
-    // Removed paddingBottom to eliminate safe area bar
+    paddingTop: 0,
+    paddingBottom: 0,
+    paddingLeft: 0,
+    paddingRight: 0,
+    overflow: 'hidden',
     zIndex: 999, // Very high z-index to ensure it stays on top
+  },
+  glassBackdrop: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 200,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: -2,
+    },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 5,
+    zIndex: 1, // Behind the text content
   },
   cardInfo: {
     flex: 1,
@@ -562,50 +679,55 @@ const styles = StyleSheet.create({
     zIndex: 1001, // Even higher z-index for scrollable content
   },
   cardInfoContent: {
-    paddingTop: 35, // Add top padding to position text lower in the card
-    // Removed bottom padding to make text extend all the way down
+    paddingTop: 0,
+    paddingLeft: 20,
+    paddingRight: 60,
   },
   nameAgeContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: 'column',
+    alignItems: 'flex-start',
     marginBottom: 5,
+    marginTop: 10,
   },
   nameAgeRow: {
     flexDirection: 'row',
     alignItems: 'baseline',
+    marginTop: 0,
+    marginBottom: 5,
   },
   cardName: {
-    fontSize: 26,
+    fontSize: 25,
     fontWeight: 'bold',
     color: '#fff',
   },
   ageSeparator: {
-    fontSize: 26,
+    fontSize: 25,
     fontWeight: 'bold',
     color: '#fff',
   },
   cardAge: {
-    fontSize: 26,
+    fontSize: 25,
     fontWeight: 'bold',
     color: '#fff',
   },
   cardLocation: {
-    fontSize: 16,
+    fontSize: 17,
     color: '#fff',
     marginBottom: 10,
   },
   locationName: {
-    fontSize: 16,
+    fontSize: 17,
     color: '#FFFFFF',
     fontWeight: '600',
   },
   festivalName: {
-    fontSize: 24,
+    fontSize: 22,
     color: '#ff4444',
     fontWeight: 'bold',
     textTransform: 'uppercase',
-    textAlign: 'center',
-    width: '100%',
+    textAlign: 'left',
+    flexWrap: 'wrap',
+    flexShrink: 1,
     textShadowColor: '#000000',
     textShadowOffset: { width: 1, height: 1 },
     textShadowRadius: 1,
@@ -619,8 +741,11 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255, 107, 107, 0.3)',
     alignItems: 'center',
     justifyContent: 'center',
-    marginLeft: 10,
+    marginBottom: 2,
+    marginLeft: -8,
+    marginTop: 0,
     overflow: 'hidden',
+    flexWrap: 'wrap',
   },
 
   currentlyAtContainer: {
@@ -650,35 +775,57 @@ const styles = StyleSheet.create({
   cardBio: {
     fontSize: 14,
     color: '#fff',
-    marginBottom: 15,
-    lineHeight: 20,
+    marginBottom: 10,
+    marginTop: -5,
+    lineHeight: 18,
+    fontWeight: 'bold',
+  },
+  bioSection: {
+    fontSize: 17,
+    color: '#fff',
+    marginBottom: 10,
+    marginTop: -5,
+    lineHeight: 21,
+    fontWeight: 'normal',
+  },
+  bioQuote: {
+    fontSize: 17,
+    color: '#ff4444',
+    fontWeight: 'normal',
+    textShadowColor: '#000000',
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 1,
   },
   bioLabel: {
-    fontSize: 14,
-    color: '#ff6b6b',
+    fontSize: 16,
+    color: '#ff4444',
     fontWeight: '600',
+    marginTop: -2,
+    textShadowColor: '#000000',
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 1,
   },
   bioText: {
-    fontSize: 14,
+    fontSize: 15,
     color: '#FFFFFF',
-    lineHeight: 20,
-    marginTop: 5,
+    lineHeight: 19,
+    marginTop: 0,
   },
   leftTapArea: {
     position: 'absolute',
     left: 0,
     top: 0,
-    width: width / 2, // Equal width - half each
-    height: '100%', // Cover the entire card including photo and text areas
-    zIndex: 1002, // Higher z-index to ensure taps work over text overlay
+    width: width / 2, // Half the card width
+    height: '100%', // Cover the entire card
+    zIndex: 99999, // Extremely high z-index to ensure taps work over everything
   },
   rightTapArea: {
     position: 'absolute',
     right: 0,
     top: 0,
-    width: width / 2, // Equal width - half each
-    height: '100%', // Cover the entire card including photo and text areas
-    zIndex: 1002, // Higher z-index to ensure taps work over text overlay
+    width: width / 2, // Half the card width
+    height: '100%', // Cover the entire card
+    zIndex: 99999, // Extremely high z-index to ensure taps work over everything
   },
   bottomLeftTapArea: {
     position: 'absolute',
@@ -696,18 +843,108 @@ const styles = StyleSheet.create({
     height: 100, // Fixed height for bottom area
     zIndex: 1002, // Higher z-index to ensure taps work over text overlay
   },
+  festivalTopContainer: {
+    position: 'absolute',
+    top: 20,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 1000,
+  },
+  festivalTopName: {
+    fontSize: 21,
+    color: '#ff4444',
+    fontWeight: 'bold',
+    textTransform: 'uppercase',
+    textAlign: 'center',
+    backgroundColor: 'rgba(255, 107, 107, 0.15)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 107, 107, 0.3)',
+    overflow: 'hidden',
+  },
   photoIndicator: {
     position: 'absolute',
-    top: 24,
+    top: 10,
     left: 0,
     right: 0,
     flexDirection: 'row',
     justifyContent: 'center',
     zIndex: 3,
   },
+  floatingBarBackground: {
+    position: 'absolute',
+    top: 73.7, // Moved down 0.7px
+    left: 21.25,
+    right: 21.25,
+    height: 75, // Extended downward - now 75px tall
+    backgroundColor: 'transparent', // Removed gray background
+    borderTopLeftRadius: 20, // Rounded corners only at top
+    borderTopRightRadius: 20,
+    zIndex: 0, // Behind the profile card
+  },
+  floatingBar: {
+    position: 'absolute',
+    top: 97.7, // Moved up 5px (102.7 - 5)
+    left: 20,
+    right: 20,
+    backgroundColor: 'transparent',
+    borderRadius: 20,
+    paddingHorizontal: 15,
+    paddingVertical: 10,
+    zIndex: 1000,
+  },
+  floatingBarContent: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  floatingBarLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  floatingBarText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '500',
+    opacity: 0.82, // Make text dimmer
+  },
+  floatingBarMap: {
+    backgroundColor: '#000000',
+    borderWidth: 1,
+    borderColor: '#95a5a6',
+    overflow: 'hidden',
+  },
+  floatingBarMapOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: '#34495e',
+  },
+  mapGrid: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 10,
+  },
+  mapGridLine: {
+    width: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+    height: '100%',
+  },
   distanceIndicator: {
     position: 'absolute',
-    top: 45,
+    top: 15,
     left: 0,
     right: 0,
     alignItems: 'center',
@@ -878,19 +1115,19 @@ const styles = StyleSheet.create({
   },
   actionButtons: {
     position: 'absolute',
-    bottom: 87,
+    bottom: 90,
     left: 0,
     right: 0,
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    gap: 28,
+    gap: 23,
     zIndex: 10000,
   },
   actionButton: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
+    width: 70,
+    height: 70,
+    borderRadius: 35,
     backgroundColor: '#333333',
     borderWidth: 1,
     borderColor: '#666666',
@@ -905,6 +1142,14 @@ const styles = StyleSheet.create({
     shadowRadius: 2,
     elevation: 2,
   },
+  editButtonActive: {
+    backgroundColor: '#FFFFFF',
+    borderColor: '#CCCCCC',
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+
   editProfileButtonText: {
     color: '#fff',
     fontSize: 12,
@@ -980,6 +1225,19 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '600',
+  },
+  noPhotoContainer: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: '#000000',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  noPhotoText: {
+    color: '#999',
+    fontSize: 16,
+    marginTop: 10,
+    textAlign: 'center',
   },
 });
   
