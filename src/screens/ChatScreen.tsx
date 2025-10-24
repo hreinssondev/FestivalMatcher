@@ -539,39 +539,64 @@ const ChatScreen: React.FC = () => {
                           {chatUser.age}
                         </Text>
                       </View>
-                      
-                      <View style={styles.festivalContainer}>
-                        <Text style={styles.festivalName}>{chatUser.festival}</Text>
-                      </View>
-                    </View>
 
-                    <Text style={styles.cardBio}>
-                      <Text style={styles.bioLabel}>Ticket: </Text>
-                      <Text style={styles.bioText}>
-                        {chatUser.ticketType}
-                      </Text>
-                      {'\n'}
-                      <Text style={styles.bioLabel}>   Stay: </Text>
-                      <Text style={styles.bioText}>
-                        {chatUser.accommodationType}
-                      </Text>
-                    </Text>
-                    
-                    <Text style={styles.bioSection}>
                       {(() => {
                         const bioText = chatUser.interests?.join(', ') || '';
                         if (bioText) {
                           return (
-                            <>
-                              <Text style={styles.bioQuote}>"</Text>
-                              {bioText}
-                              <Text style={styles.bioQuote}>"</Text>
-                            </>
+                            <Text style={styles.bioSection}>
+                              -  {bioText}
+                            </Text>
                           );
                         }
-                        return bioText;
+                        return null;
                       })()}
-                    </Text>
+
+                      <View style={styles.festivalContainer}>
+                        {chatUser.festival.split(',').map((fest, index) => {
+                          const festivalName = fest.trim();
+                          
+                          // Parse ticket types
+                          const ticketTypes = chatUser.ticketType ? chatUser.ticketType.split(',').reduce((acc, item) => {
+                            const match = item.match(/(.+?):\s*(.+)/);
+                            if (match) {
+                              acc[match[1].trim()] = match[2].trim();
+                            }
+                            return acc;
+                          }, {} as { [key: string]: string }) : {};
+                          
+                          // Parse accommodations
+                          const accommodations = chatUser.accommodationType ? chatUser.accommodationType.split(',').reduce((acc, item) => {
+                            const match = item.match(/(.+?):\s*(.+)/);
+                            if (match) {
+                              acc[match[1].trim()] = match[2].trim();
+                            }
+                            return acc;
+                          }, {} as { [key: string]: string }) : {};
+                          
+                          const ticketType = ticketTypes[festivalName];
+                          const accommodation = accommodations[festivalName];
+                          
+                          return (
+                            <View key={index} style={styles.festivalRow}>
+                              <Text style={styles.festivalName}>{festivalName}</Text>
+                              <View style={styles.festivalDetails}>
+                                {ticketType && (
+                                  <Text style={styles.festivalDetailText}>
+                                    🎫 {ticketType}
+                                  </Text>
+                                )}
+                                {accommodation && (
+                                  <Text style={styles.festivalDetailText}>
+                                    🏠 {accommodation}
+                                  </Text>
+                                )}
+                              </View>
+                            </View>
+                          );
+                        })}
+                      </View>
+                    </View>
                   </ScrollView>
                 </View>
               </LinearGradient>
@@ -901,11 +926,26 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 6,
     alignSelf: 'flex-start',
+    flexDirection: 'column',
+  },
+  festivalRow: {
+    width: '100%',
+    marginBottom: 5,
   },
   festivalName: {
     color: '#ff6b6b',
     fontSize: 14,
     fontWeight: '600',
+  },
+  festivalDetails: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 2,
+  },
+  festivalDetailText: {
+    fontSize: 12,
+    color: '#CCCCCC',
+    fontWeight: '500',
   },
   profileCardBio: {
     fontSize: 16,
@@ -1055,7 +1095,7 @@ const styles = StyleSheet.create({
   },
   bioQuote: {
     fontSize: 17,
-    color: '#ff4444',
+    color: '#FFFFFF',
     fontWeight: 'normal',
     textShadowColor: '#000000',
     textShadowOffset: { width: 1, height: 1 },

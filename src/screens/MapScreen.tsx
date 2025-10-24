@@ -655,15 +655,63 @@ const MapScreen: React.FC = () => {
                   <Text style={styles.profileName}>
                     {selectedUser.name}, {selectedUser.age}
                   </Text>
-                  <View style={styles.festivalContainer}>
-                    <Text style={styles.festivalName}>{selectedUser.festival}</Text>
-                  </View>
 
-                  <Text style={styles.profileBio}>
-                    <Text style={styles.bioLabel}>Ticket: </Text>{selectedUser.ticketType}{'\n'}
-                    <Text style={styles.bioLabel}>Accommodation: </Text>{selectedUser.accommodationType}{'\n'}
-                    <Text style={styles.bioText}>{selectedUser.interests?.join(', ') || ''}</Text>
-                  </Text>
+                  {(() => {
+                    const bioText = selectedUser.interests?.join(', ') || '';
+                    if (bioText) {
+                      return (
+                        <Text style={styles.profileBio}>
+                          <Text style={styles.bioText}>-  {bioText}</Text>
+                        </Text>
+                      );
+                    }
+                    return null;
+                  })()}
+
+                  <View style={styles.festivalContainer}>
+                    {selectedUser.festival.split(',').map((fest, index) => {
+                      const festivalName = fest.trim();
+                      
+                      // Parse ticket types
+                      const ticketTypes = selectedUser.ticketType ? selectedUser.ticketType.split(',').reduce((acc, item) => {
+                        const match = item.match(/(.+?):\s*(.+)/);
+                        if (match) {
+                          acc[match[1].trim()] = match[2].trim();
+                        }
+                        return acc;
+                      }, {} as { [key: string]: string }) : {};
+                      
+                      // Parse accommodations
+                      const accommodations = selectedUser.accommodationType ? selectedUser.accommodationType.split(',').reduce((acc, item) => {
+                        const match = item.match(/(.+?):\s*(.+)/);
+                        if (match) {
+                          acc[match[1].trim()] = match[2].trim();
+                        }
+                        return acc;
+                      }, {} as { [key: string]: string }) : {};
+                      
+                      const ticketType = ticketTypes[festivalName];
+                      const accommodation = accommodations[festivalName];
+                      
+                      return (
+                        <View key={index} style={styles.festivalRow}>
+                          <Text style={styles.festivalName}>{festivalName}</Text>
+                          <View style={styles.festivalDetails}>
+                            {ticketType && (
+                              <Text style={styles.festivalDetailText}>
+                                🎫 {ticketType}
+                              </Text>
+                            )}
+                            {accommodation && (
+                              <Text style={styles.festivalDetailText}>
+                                🏠 {accommodation}
+                              </Text>
+                            )}
+                          </View>
+                        </View>
+                      );
+                    })}
+                  </View>
                 </ScrollView>
               </Animated.View>
             </LinearGradient>
@@ -1287,7 +1335,7 @@ const styles = StyleSheet.create({
     paddingVertical: 1,
     borderWidth: 1,
     borderColor: 'rgba(255, 107, 107, 0.3)',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     justifyContent: 'center',
     position: 'absolute',
     top: 21,
@@ -1295,6 +1343,7 @@ const styles = StyleSheet.create({
     width: 152,
     zIndex: 10000,
     overflow: 'hidden',
+    flexDirection: 'column',
   },
   currentlyAtText: {
     fontSize: 10,
@@ -1308,20 +1357,34 @@ const styles = StyleSheet.create({
     textShadowOffset: { width: 1, height: 1 },
     textShadowRadius: 1,
   },
+  festivalRow: {
+    width: '100%',
+    marginBottom: 5,
+  },
   festivalName: {
     fontSize: 24,
     color: '#ff4444',
     fontWeight: 'bold',
     textTransform: 'uppercase',
-    textAlign: 'center',
-    width: '100%',
+    textAlign: 'left',
     textShadowColor: '#000000',
     textShadowOffset: { width: 1, height: 1 },
     textShadowRadius: 1,
   },
+  festivalDetails: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 2,
+  },
+  festivalDetailText: {
+    fontSize: 14,
+    color: '#CCCCCC',
+    fontWeight: '500',
+  },
   profileBio: {
     fontSize: 14,
     color: '#fff',
+    marginTop: 10,
     marginBottom: 15,
     lineHeight: 20,
   },

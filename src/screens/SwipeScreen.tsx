@@ -9,6 +9,7 @@ import {
   ScrollView,
   Animated,
   Alert,
+  Modal,
 } from 'react-native';
 import { PanGestureHandler, State } from 'react-native-gesture-handler';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -41,6 +42,8 @@ const SwipeScreen = () => {
   const [showMatchPopup, setShowMatchPopup] = useState(false);
   const [matchedUser, setMatchedUser] = useState<User | null>(null);
   const [showPremiumPopup, setShowPremiumPopup] = useState(false);
+  const [showProfileModal, setShowProfileModal] = useState(false);
+  const [modalPhotoIndex, setModalPhotoIndex] = useState(0);
   const scrollViewRef = React.useRef<ScrollView>(null);
   const infoHeightAnim = React.useRef(new Animated.Value(200)).current;
   const cardOpacityAnim = React.useRef(new Animated.Value(1)).current;
@@ -552,11 +555,13 @@ const SwipeScreen = () => {
               style={[
                 styles.cardInfo,
                 { height: infoHeightAnim },
-                { zIndex: 1000 } // Ensure animated wrapper stays in front
+                { zIndex: 100000 } // Higher z-index to ensure it's above tap areas
               ]}
             >
-              <View 
+              <TouchableOpacity 
                 style={[styles.cardInfoScroll, styles.cardInfoContent]}
+                onPress={() => setShowProfileModal(true)}
+                activeOpacity={0.9}
               >
                 <View style={styles.nameAgeContainer}>
                   <View style={styles.nameAgeRow}>
@@ -567,41 +572,33 @@ const SwipeScreen = () => {
                     <Text style={styles.cardAge}>
                       {currentUser.age}
                     </Text>
-                                    </View>
-                  
-                  <View style={styles.festivalContainer}>
-                    <Text style={styles.festivalName}>{currentUser.festival}</Text>
                   </View>
-                </View>
 
-                <Text style={styles.cardBio}>
-                  <Text style={styles.bioLabel}>Ticket: </Text>
-                  <Text style={styles.bioText}>
-                    {currentUser.ticketType}
-                  </Text>
-                                     {'\n'}
-                    <Text style={styles.bioLabel}>   Stay: </Text>
-                  <Text style={styles.bioText}>
-                    {currentUser.accommodationType}
-                  </Text>
-                </Text>
-                
-                <Text style={styles.bioSection}>
                   {(() => {
                     const bioText = currentUser.interests?.join(', ') || '';
                     if (bioText) {
                       return (
-                        <>
-                          <Text style={styles.bioQuote}>"</Text>
-                          {bioText}
-                          <Text style={styles.bioQuote}>"</Text>
-                        </>
+                        <Text style={styles.bioSection}>
+                          {" "}{bioText}
+                        </Text>
                       );
                     }
-                    return bioText;
+                    return null;
                   })()}
-                </Text>
-              </View>
+
+                  <View style={styles.festivalContainer}>
+                    {currentUser.festival.split(',').map((fest, index) => {
+                      const festivalName = fest.trim();
+                      
+                      return (
+                        <View key={index} style={styles.festivalRow}>
+                          <Text style={styles.festivalName}>{festivalName}</Text>
+                        </View>
+                      );
+                    })}
+                  </View>
+                </View>
+              </TouchableOpacity>
             </Animated.View>
           </View>
           
@@ -651,6 +648,141 @@ const SwipeScreen = () => {
           <MaterialIcons name="favorite" size={20} color="rgba(255, 255, 255, 0.82)" />
         </TouchableOpacity>
       </View>
+
+      {/* Profile Modal */}
+      {currentUser && (
+        <Modal
+          visible={showProfileModal}
+          animationType="slide"
+          transparent={true}
+          onRequestClose={() => setShowProfileModal(false)}
+        >
+          <View style={styles.profileModalOverlay}>
+            <View style={styles.profileModalContainer}>
+              <TouchableOpacity
+                style={styles.profileModalClose}
+                onPress={() => setShowProfileModal(false)}
+              >
+                <MaterialIcons name="close" size={28} color="#FFFFFF" />
+              </TouchableOpacity>
+
+              <ScrollView
+                style={styles.profileModalScroll}
+                contentContainerStyle={styles.profileModalContent}
+                showsVerticalScrollIndicator={true}
+              >
+                {/* Profile Photos */}
+                <View style={styles.profileModalPhotos}>
+                  <ScrollView
+                    horizontal
+                    pagingEnabled
+                    showsHorizontalScrollIndicator={false}
+                    style={styles.profileModalPhotoScroll}
+                    ref={(ref) => {
+                      if (ref) {
+                        ref.scrollTo({ x: modalPhotoIndex * width * 0.9, animated: false });
+                      }
+                    }}
+                  >
+                    {currentUser.photos && currentUser.photos.length > 0 ? (
+                      currentUser.photos.map((photo, index) => (
+                        <TouchableOpacity
+                          key={index}
+                          style={styles.profileModalPhotoContainer}
+                          onPress={() => {
+                            const nextIndex = (index + 1) % currentUser.photos.length;
+                            setModalPhotoIndex(nextIndex);
+                          }}
+                          activeOpacity={0.9}
+                        >
+                          <Image
+                            source={{ uri: photo }}
+                            style={styles.profileModalPhoto}
+                            resizeMode="cover"
+                          />
+                        </TouchableOpacity>
+                      ))
+                    ) : (
+                      <View style={styles.profileModalPhotoPlaceholder}>
+                        <MaterialIcons name="person" size={80} color="#666" />
+                        <Text style={styles.profileModalPhotoPlaceholderText}>No photos</Text>
+                      </View>
+                    )}
+                  </ScrollView>
+                </View>
+
+                {/* Profile Info */}
+                <View style={styles.nameAgeContainer}>
+                  <View style={styles.nameAgeRow}>
+                    <Text style={styles.cardName}>
+                      {currentUser.name}
+                    </Text>
+                    <Text style={styles.ageSeparator}>, </Text>
+                    <Text style={styles.cardAge}>
+                      {currentUser.age}
+                    </Text>
+                  </View>
+
+                  {(() => {
+                    const bioText = currentUser.interests?.join(', ') || '';
+                    if (bioText) {
+                      return (
+                        <Text style={styles.bioSection}>
+                          {" "}{bioText}
+                        </Text>
+                      );
+                    }
+                    return null;
+                  })()}
+
+                  <View style={styles.festivalContainer}>
+                    {currentUser.festival.split(',').map((fest, index) => {
+                      const festivalName = fest.trim();
+                      
+                      const ticketTypes = currentUser.ticketType ? currentUser.ticketType.split(',').reduce((acc, item) => {
+                        const match = item.match(/(.+?):\s*(.+)/);
+                        if (match) {
+                          acc[match[1].trim()] = match[2].trim();
+                        }
+                        return acc;
+                      }, {} as { [key: string]: string }) : {};
+                      
+                      const accommodations = currentUser.accommodationType ? currentUser.accommodationType.split(',').reduce((acc, item) => {
+                        const match = item.match(/(.+?):\s*(.+)/);
+                        if (match) {
+                          acc[match[1].trim()] = match[2].trim();
+                        }
+                        return acc;
+                      }, {} as { [key: string]: string }) : {};
+                      
+                      const ticketType = ticketTypes[festivalName];
+                      const accommodation = accommodations[festivalName];
+                      
+                      return (
+                        <View key={index} style={styles.festivalRow}>
+                          <Text style={styles.festivalName}>{festivalName}</Text>
+                          <View style={styles.festivalDetails}>
+                            {ticketType && (
+                              <Text style={styles.festivalDetailText}>
+                                🎫 {ticketType}
+                              </Text>
+                            )}
+                            {accommodation && (
+                              <Text style={styles.festivalDetailText}>
+                                🏠 {accommodation}
+                              </Text>
+                            )}
+                          </View>
+                        </View>
+                      );
+                    })}
+                  </View>
+                </View>
+              </ScrollView>
+            </View>
+          </View>
+        </Modal>
+      )}
 
       {/* Match Popup */}
       {matchedUser && (
@@ -802,17 +934,29 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#fff',
   },
+  festivalRow: {
+    width: '100%',
+    marginBottom: 5,
+  },
   festivalName: {
     fontSize: 22,
     color: '#ff4444',
     fontWeight: 'bold',
     textTransform: 'uppercase',
     textAlign: 'left',
-    flexWrap: 'wrap',
-    flexShrink: 1,
     textShadowColor: '#000000',
     textShadowOffset: { width: 1, height: 1 },
     textShadowRadius: 1,
+  },
+  festivalDetails: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 2,
+  },
+  festivalDetailText: {
+    fontSize: 14,
+    color: '#CCCCCC',
+    fontWeight: '500',
   },
   festivalContainer: {
     backgroundColor: 'rgba(255, 107, 107, 0.15)',
@@ -821,13 +965,13 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
     borderWidth: 1,
     borderColor: 'rgba(255, 107, 107, 0.3)',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     justifyContent: 'center',
     marginBottom: 2,
     marginLeft: -8,
+    flexDirection: 'column',
     marginTop: 0,
     overflow: 'hidden',
-    flexWrap: 'wrap',
   },
   cardBio: {
     fontSize: 14,
@@ -847,7 +991,7 @@ const styles = StyleSheet.create({
   },
   bioQuote: {
     fontSize: 17,
-    color: '#ff4444',
+    color: '#FFFFFF',
     fontWeight: 'normal',
     textShadowColor: '#000000',
     textShadowOffset: { width: 1, height: 1 },
@@ -873,7 +1017,7 @@ const styles = StyleSheet.create({
     left: 0,
     top: 0,
     width: width / 2, // Half the card width
-    height: '100%', // Cover the entire card
+    height: height * 0.6, // Only cover the photo area, not the profile info
     zIndex: 99999, // Extremely high z-index to ensure taps work over everything
   },
   rightTapArea: {
@@ -881,7 +1025,7 @@ const styles = StyleSheet.create({
     right: 0,
     top: 0,
     width: width / 2, // Half the card width
-    height: '100%', // Cover the entire card
+    height: height * 0.6, // Only cover the photo area, not the profile info
     zIndex: 99999, // Extremely high z-index to ensure taps work over everything
   },
   bottomLeftTapArea: {
@@ -1067,9 +1211,9 @@ const styles = StyleSheet.create({
     width: 70,
     height: 70,
     borderRadius: 35,
-    backgroundColor: '#333333',
+    backgroundColor: '#555555',
     borderWidth: 1,
-    borderColor: '#666666',
+    borderColor: '#777777',
     justifyContent: 'center',
     alignItems: 'center',
     shadowColor: '#000',
@@ -1105,6 +1249,69 @@ const styles = StyleSheet.create({
     fontSize: 18,
     textAlign: 'center',
     marginTop: height * 0.3,
+  },
+  profileModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.9)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  profileModalContainer: {
+    width: width * 0.9,
+    height: height * 0.8,
+    backgroundColor: '#2D2D2D',
+    borderRadius: 20,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  profileModalClose: {
+    position: 'absolute',
+    top: 15,
+    right: 15,
+    zIndex: 10,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    borderRadius: 20,
+    padding: 5,
+  },
+  profileModalScroll: {
+    flex: 1,
+  },
+  profileModalContent: {
+    paddingBottom: 25,
+    paddingLeft: 27,
+    paddingRight: 20,
+  },
+  profileModalPhotos: {
+    height: height * 0.4,
+    marginBottom: 20,
+    alignItems: 'center',
+  },
+  profileModalPhotoScroll: {
+    flex: 1,
+  },
+  profileModalPhotoContainer: {
+    width: width * 0.9,
+    height: height * 0.4,
+  },
+  profileModalPhoto: {
+    width: width * 0.9,
+    height: height * 0.4,
+  },
+  profileModalPhotoPlaceholder: {
+    width: width * 0.9,
+    height: height * 0.4,
+    backgroundColor: '#1A1A1A',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  profileModalPhotoPlaceholderText: {
+    color: '#666',
+    fontSize: 16,
+    marginTop: 10,
   },
 });
 

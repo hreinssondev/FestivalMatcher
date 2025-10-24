@@ -14,11 +14,13 @@ import {
   FlatList,
   Keyboard,
   Modal,
+  Animated,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Location from 'expo-location';
+import * as ImagePicker from 'expo-image-picker';
 import { useProfile } from '../context/ProfileContext';
 import { DeviceAuthService } from '../services/deviceAuthService';
 
@@ -27,10 +29,13 @@ const { width, height } = Dimensions.get('window');
 interface OnboardingData {
   name: string;
   age: string;
-  festival: string;
-  ticketType: string;
-  accommodation: string;
+  festival: string[];
+  ticketType: { [festival: string]: string };
+  accommodation: { [festival: string]: string };
+  photos: string[];
+  bio: string;
   locationPermission: boolean;
+  pushNotifications: boolean;
 }
 
 const festivals = [
@@ -71,30 +76,46 @@ const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }) => {
   const scrollViewRef = useRef<ScrollView>(null);
   const nameInputRef = useRef<TextInput>(null);
   const ageInputRef = useRef<TextInput>(null);
+  const festivalCustomInputRef = useRef<TextInput>(null);
+  const ticketTypeCustomInputRef = useRef<TextInput>(null);
+  const accommodationCustomInputRef = useRef<TextInput>(null);
+  
   const [currentStep, setCurrentStep] = useState(0);
+  const [animatingItem, setAnimatingItem] = useState<string | null>(null);
   const [data, setData] = useState<OnboardingData>({
     name: '',
     age: '',
-    festival: '',
-    ticketType: '',
-    accommodation: '',
+    festival: [],
+    ticketType: {},
+    accommodation: {},
+    photos: [],
+    bio: '',
     locationPermission: false,
+    pushNotifications: false,
   });
 
   const [showAccommodationPicker, setShowAccommodationPicker] = useState(false);
   const [showFestivalPicker, setShowFestivalPicker] = useState(false);
   const [showTicketTypePicker, setShowTicketTypePicker] = useState(false);
+  const [selectedFestivalForTicket, setSelectedFestivalForTicket] = useState<string | null>(null);
+  const [selectedFestivalForAccommodation, setSelectedFestivalForAccommodation] = useState<string | null>(null);
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
   const [showCustomInput, setShowCustomInput] = useState(false);
   const [customInputValue, setCustomInputValue] = useState('');
   const [customInputField, setCustomInputField] = useState<keyof OnboardingData | null>(null);
+  const [showFestivalCustomInput, setShowFestivalCustomInput] = useState(false);
+  const [showTicketTypeCustomInput, setShowTicketTypeCustomInput] = useState(false);
+  const [showAccommodationCustomInput, setShowAccommodationCustomInput] = useState(false);
 
   const steps = [
     { id: 0, title: 'Welcome to FestivalMatcher', subtitle: 'Tell us about yourself' },
-    { id: 1, title: 'Which Festival?', subtitle: '' },
+    { id: 1, title: 'Which Festivals?', subtitle: 'Which festivals are you attending this year?  You can add multiple.' },
     { id: 2, title: 'What\'s your ticket?', subtitle: '' },
-    { id: 3, title: 'Where are you staying?', subtitle: '' },
-    { id: 4, title: 'Location Ping', subtitle: '' },
+    { id: 3, title: 'Accommodation', subtitle: '' },
+    { id: 4, title: 'Add Photos', subtitle: '' },
+    { id: 5, title: 'About You', subtitle: '' },
+    { id: 6, title: 'Location Ping', subtitle: '' },
+    { id: 7, title: 'Push Notifications', subtitle: '' },
   ];
 
   // Auto-focus name input when component mounts
@@ -121,6 +142,36 @@ const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }) => {
       keyboardDidHideListener?.remove();
     };
   }, []);
+
+  // Focus festival custom input when shown
+  useEffect(() => {
+    if (showFestivalCustomInput) {
+      const timer = setTimeout(() => {
+        festivalCustomInputRef.current?.focus();
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [showFestivalCustomInput]);
+
+  // Focus ticket type custom input when shown
+  useEffect(() => {
+    if (showTicketTypeCustomInput) {
+      const timer = setTimeout(() => {
+        ticketTypeCustomInputRef.current?.focus();
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [showTicketTypeCustomInput]);
+
+  // Focus accommodation custom input when shown
+  useEffect(() => {
+    if (showAccommodationCustomInput) {
+      const timer = setTimeout(() => {
+        accommodationCustomInputRef.current?.focus();
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [showAccommodationCustomInput]);
 
   const updateData = (field: keyof OnboardingData, value: any) => {
     setData(prev => ({ ...prev, [field]: value }));
@@ -151,11 +202,24 @@ const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }) => {
     switch (currentStep) {
       case 0: return data.name.trim().length > 0 && data.age.trim().length > 0 && parseInt(data.age) >= 18;
       case 1: return data.festival.length > 0;
-      case 2: return data.ticketType.length > 0;
+      case 2: return data.festival.every(fest => data.ticketType[fest]?.length > 0);
       case 3: return true; // Optional accommodation
-      case 4: return true; // Can proceed regardless
+      case 4: return true; // Photos are optional
+      case 5: return true; // Bio is optional
+      case 6: return true; // Can proceed regardless
+      case 7: return true; // Can proceed regardless
       default: return false;
     }
+  };
+
+  const playSuccessAnimation = (itemId: string, callback: () => void) => {
+    setAnimatingItem(itemId);
+    
+    // Just show color change briefly, then proceed
+    setTimeout(() => {
+      setAnimatingItem(null);
+      callback();
+    }, 290);
   };
 
   const handleNext = () => {
@@ -168,6 +232,13 @@ const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }) => {
     } else {
       handleComplete();
     }
+  };
+
+  const handleSelectionWithAnimation = (itemId: string, onSelect: () => void) => {
+    playSuccessAnimation(itemId, () => {
+      onSelect();
+      handleNext();
+    });
   };
 
   const handleBack = () => {
@@ -186,11 +257,8 @@ const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }) => {
       updateData('locationPermission', status === 'granted');
       
       if (status === 'granted') {
-        Alert.alert('Location Access Granted', 'You can now find people nearby at festivals!');
-        // Complete onboarding after location step
-        setTimeout(() => {
-          handleComplete();
-        }, 1000);
+        // Go to next page (notifications)
+        handleNext();
       } else {
         Alert.alert(
           'Location Access Required', 
@@ -214,7 +282,46 @@ const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }) => {
     }
   };
 
+  const pickImage = async () => {
+    try {
+      // Request permission
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      
+      if (status !== 'granted') {
+        Alert.alert('Permission Required', 'We need permission to access your photos.');
+        return;
+      }
 
+      // Launch image picker
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsMultipleSelection: true,
+        quality: 0.8,
+        aspect: [4, 5],
+      });
+
+      if (!result.canceled && result.assets) {
+        const newPhotos = result.assets.map(asset => asset.uri);
+        const updatedPhotos = [...data.photos, ...newPhotos].slice(0, 6); // Max 6 photos
+        setData(prev => ({ ...prev, photos: updatedPhotos }));
+      }
+    } catch (error) {
+      console.error('Error picking image:', error);
+      Alert.alert('Error', 'Failed to pick image. Please try again.');
+    }
+  };
+
+  const removePhoto = (index: number) => {
+    const updatedPhotos = data.photos.filter((_, i) => i !== index);
+    setData(prev => ({ ...prev, photos: updatedPhotos }));
+  };
+
+  const movePhoto = (fromIndex: number, toIndex: number) => {
+    const updatedPhotos = [...data.photos];
+    const [movedPhoto] = updatedPhotos.splice(fromIndex, 1);
+    updatedPhotos.splice(toIndex, 0, movedPhoto);
+    setData(prev => ({ ...prev, photos: updatedPhotos }));
+  };
 
 
 
@@ -243,17 +350,17 @@ const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }) => {
       console.log('Updating user profile with data:', {
         name: data.name,
         age: age,
-        festival: data.festival,
-        accommodation: data.accommodation,
+        festival: data.festival.join(', '),
+        accommodation: Object.entries(data.accommodation).map(([fest, accom]) => `${fest}: ${accom}`).join(', '),
       });
       
       const updateResult = await DeviceAuthService.updateUserProfile({
         name: data.name,
         age: age,
-        festival: data.festival,
-        ticket_type: data.ticketType,
-        accommodation_type: data.accommodation,
-        interests: [], // Will be added later
+        festival: data.festival.join(', '),
+        ticket_type: Object.entries(data.ticketType).map(([fest, ticket]) => `${fest}: ${ticket}`).join(', '),
+        accommodation_type: Object.entries(data.accommodation).map(([fest, accom]) => `${fest}: ${accom}`).join(', '),
+        interests: data.bio.trim() ? [data.bio.trim()] : [],
       });
       console.log('Database update result:', updateResult);
 
@@ -268,9 +375,9 @@ const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }) => {
       await updateProfile({
         name: data.name,
         age: age,
-        festival: data.festival,
-        ticketType: data.ticketType,
-        accommodation: data.accommodation,
+        festival: data.festival.join(', '),
+        ticketType: Object.entries(data.ticketType).map(([fest, ticket]) => `${fest}: ${ticket}`).join(', '),
+        accommodation: Object.entries(data.accommodation).map(([fest, accom]) => `${fest}: ${accom}`).join(', '),
         locationPermission: data.locationPermission,
       });
       console.log('Profile context updated');
@@ -278,6 +385,7 @@ const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }) => {
       // Mark onboarding as completed and go to profile
       console.log('Marking onboarding as completed...');
       await AsyncStorage.setItem('onboarding_completed', 'true');
+      await AsyncStorage.setItem('show_welcome_modal', 'true');
       
       console.log('Onboarding completed successfully!');
       onComplete();
@@ -329,171 +437,483 @@ const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }) => {
              </View>
 
              {/* Age */}
-             <View style={styles.fieldSection}>
-               <Text style={styles.fieldTitle}>Age</Text>
-               <TextInput
-                 ref={ageInputRef}
-                 style={styles.textInput}
-                 value={data.age}
-                 onChangeText={(text) => updateData('age', text.replace(/[^0-9]/g, ''))}
-                 placeholder="Enter your age"
-                 placeholderTextColor="#666"
-                 keyboardType="numeric"
-                 returnKeyType="done"
-                 onSubmitEditing={() => {
-                   Keyboard.dismiss();
-                   handleNext();
-                 }}
-                 keyboardAppearance="dark"
-               />
-               {data.age && parseInt(data.age) < 18 && (
-                 <Text style={styles.errorText}>You must be 18 or older to use this app</Text>
-               )}
-             </View>
+            <View style={styles.fieldSection}>
+              <Text style={styles.fieldTitle}>Age</Text>
+              <Animated.View
+                style={[
+                  { width: '100%' }
+                ]}
+              >
+                <TextInput
+                  ref={ageInputRef}
+                  style={[
+                    styles.textInput,
+                    animatingItem === 'age-input' && styles.textInputSelected
+                  ]}
+                  value={data.age}
+                  onChangeText={(text) => updateData('age', text.replace(/[^0-9]/g, ''))}
+                  placeholder="Enter your age"
+                  placeholderTextColor="#666"
+                  keyboardType="numeric"
+                  returnKeyType="done"
+                  onSubmitEditing={() => {
+                    if (canProceed()) {
+                      handleSelectionWithAnimation('age-input', () => {
+                        Keyboard.dismiss();
+                      });
+                    }
+                  }}
+                  keyboardAppearance="dark"
+                />
+              </Animated.View>
+              {data.age && parseInt(data.age) < 18 && (
+                <Text style={styles.errorText}>You must be 18 or older to use this app</Text>
+              )}
+            </View>
            </View>
          );
 
 
 
-             case 1: // Festival Selection
-         return (
-           <View style={styles.stepContainer}>
-             <View style={styles.fieldSection}>
-               <TouchableOpacity
-                 style={styles.pickerButton}
-                 onPress={() => setShowFestivalPicker(!showFestivalPicker)}
-               >
-                 <Text style={[styles.pickerButtonText, data.festival ? styles.pickerButtonTextFilled : null]}>
-                   {data.festival || 'Select a festival'}
-                 </Text>
-                 <MaterialIcons name="keyboard-arrow-down" size={24} color="#666" />
-               </TouchableOpacity>
-               
-               {showFestivalPicker && (
-                 <View style={styles.pickerContainer}>
+            case 1: // Festival Selection
+        return (
+          <View style={[styles.stepContainer, { marginTop: -11 }]}>
+            <View style={styles.fieldSection}>
+              {/* Display selected festivals as chips */}
+              {data.festival.length > 0 && (
+                <View style={styles.selectedChipsContainer}>
+                  {data.festival.map((selectedFestival, index) => (
+                    <View key={index} style={styles.festivalChip}>
+                      <Text style={styles.festivalChipText}>{selectedFestival}</Text>
+                      <TouchableOpacity
+                        onPress={() => {
+                          const newFestivals = data.festival.filter((_, i) => i !== index);
+                          updateData('festival', newFestivals);
+                        }}
+                      >
+                        <MaterialIcons name="close" size={18} color="#FFFFFF" />
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                </View>
+              )}
+
+              {!showFestivalCustomInput ? (
+                <>
+                  <TouchableOpacity
+                    style={styles.pickerButton}
+                    onPress={() => setShowFestivalPicker(!showFestivalPicker)}
+                  >
+                    <Text style={[styles.pickerButtonText, data.festival.length > 0 ? styles.pickerButtonTextFilled : null]}>
+                      {data.festival.length > 0 ? 'Add more festivals' : 'Select a festival'}
+                    </Text>
+                    <MaterialIcons name="keyboard-arrow-down" size={24} color="#666" />
+                  </TouchableOpacity>
+                  
+                  {showFestivalPicker && (
+                    <View style={styles.pickerContainer}>
+                      <TouchableOpacity
+                        style={[styles.pickerOption, styles.customInputOption]}
+                        onPress={() => {
+                          setShowFestivalPicker(false);
+                          setShowFestivalCustomInput(true);
+                        }}
+                      >
+                        <Text style={[styles.pickerOptionText, styles.customInputText]}>✏️ Write yourself</Text>
+                        <MaterialIcons name="edit" size={20} color="#FF6B6B" />
+                      </TouchableOpacity>
+                      {festivals.map((festival) => (
+                        <Animated.View
+                          key={festival}
+                          style={[
+                            { width: '100%', alignItems: 'flex-start' }
+                          ]}
+                        >
+                          <TouchableOpacity
+                            style={[
+                              styles.pickerOption,
+                              animatingItem === festival && styles.pickerOptionSelected
+                            ]}
+                            onPress={() => {
+                              if (!data.festival.includes(festival)) {
+                                playSuccessAnimation(festival, () => {
+                                  updateData('festival', [...data.festival, festival]);
+                                });
+                              }
+                            }}
+                          >
+                            <Text style={[
+                              styles.pickerOptionText,
+                              animatingItem === festival && styles.pickerOptionTextSelected
+                            ]}>{festival}</Text>
+                            {data.festival.includes(festival) && (
+                              <MaterialIcons name="check" size={20} color="#FF6B6B" />
+                            )}
+                          </TouchableOpacity>
+                        </Animated.View>
+                      ))}
+                    </View>
+                  )}
+                </>
+              ) : (
+                <View>
+                  <Animated.View
+                    style={[
+                      { width: '100%' }
+                    ]}
+                  >
+                    <TextInput
+                      ref={festivalCustomInputRef}
+                      style={[
+                        styles.textInput,
+                        animatingItem === 'festival-custom' && styles.textInputSelected
+                      ]}
+                      placeholder="Enter festival name"
+                      placeholderTextColor="#666"
+                      returnKeyType="done"
+                      keyboardAppearance="dark"
+                      onSubmitEditing={(e) => {
+                        const customFestival = e.nativeEvent.text.trim();
+                        if (customFestival && !data.festival.includes(customFestival)) {
+                          playSuccessAnimation('festival-custom', () => {
+                            updateData('festival', [...data.festival, customFestival]);
+                            setShowFestivalCustomInput(false);
+                            Keyboard.dismiss();
+                          });
+                        } else {
+                          setShowFestivalCustomInput(false);
+                          Keyboard.dismiss();
+                        }
+                      }}
+                    />
+                  </Animated.View>
+                  <TouchableOpacity
+                    style={styles.backToPickerButton}
+                    onPress={() => {
+                      setShowFestivalCustomInput(false);
+                      setShowFestivalPicker(true);
+                    }}
+                  >
+                    <Text style={styles.backToPickerText}>Back to list</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </View>
+          </View>
+        );
+
+            case 2: // Ticket Type Selection
+        return (
+          <View style={[styles.stepContainer, { marginTop: -1 }]}>
+            <ScrollView style={{ width: '100%' }} showsVerticalScrollIndicator={false}>
+              {data.festival.map((festival, index) => (
+                <View key={index} style={styles.festivalTicketSection}>
+                  <Text style={styles.festivalTicketLabel}>{festival}</Text>
+                  <View style={styles.fieldSection}>
+                    <TouchableOpacity
+                      style={styles.pickerButton}
+                      onPress={() => {
+                        setSelectedFestivalForTicket(festival);
+                        setShowTicketTypePicker(true);
+                      }}
+                    >
+                      <Text style={[styles.pickerButtonText, data.ticketType[festival] ? styles.pickerButtonTextFilled : null]}>
+                        {data.ticketType[festival] || 'Select ticket type'}
+                      </Text>
+                      <MaterialIcons name="keyboard-arrow-down" size={24} color="#666" />
+                    </TouchableOpacity>
+                    
+                    {showTicketTypePicker && selectedFestivalForTicket === festival && (
+                      <View style={styles.pickerContainer}>
+                        <TouchableOpacity
+                          style={[styles.pickerOption, styles.customInputOption]}
+                          onPress={() => {
+                            setShowTicketTypePicker(false);
+                            setShowTicketTypeCustomInput(true);
+                          }}
+                        >
+                          <Text style={[styles.pickerOptionText, styles.customInputText]}>✏️ Write yourself</Text>
+                          <MaterialIcons name="edit" size={20} color="#FF6B6B" />
+                        </TouchableOpacity>
+                        {ticketTypes.map((ticketType) => (
+                          <TouchableOpacity
+                            key={ticketType}
+                            style={[
+                              styles.pickerOption,
+                              animatingItem === ticketType && styles.pickerOptionSelected
+                            ]}
+                            onPress={() => {
+                              playSuccessAnimation(ticketType, () => {
+                                const newTicketTypes = { ...data.ticketType, [festival]: ticketType };
+                                updateData('ticketType', newTicketTypes);
+                                setShowTicketTypePicker(false);
+                              });
+                            }}
+                          >
+                            <Text style={[
+                              styles.pickerOptionText,
+                              animatingItem === ticketType && styles.pickerOptionTextSelected
+                            ]}>{ticketType}</Text>
+                            {data.ticketType[festival] === ticketType && (
+                              <MaterialIcons name="check" size={20} color="#FF6B6B" />
+                            )}
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    )}
+                    
+                    {showTicketTypeCustomInput && selectedFestivalForTicket === festival && (
+                      <View>
+                        <TextInput
+                          ref={ticketTypeCustomInputRef}
+                          style={[
+                            styles.textInput,
+                            animatingItem === 'tickettype-custom' && styles.textInputSelected
+                          ]}
+                          placeholder="Enter ticket type"
+                          placeholderTextColor="#666"
+                          returnKeyType="done"
+                          keyboardAppearance="dark"
+                          onSubmitEditing={(e) => {
+                            const customTicketType = e.nativeEvent.text.trim();
+                            if (customTicketType) {
+                              playSuccessAnimation('tickettype-custom', () => {
+                                const newTicketTypes = { ...data.ticketType, [festival]: customTicketType };
+                                updateData('ticketType', newTicketTypes);
+                                setShowTicketTypeCustomInput(false);
+                                Keyboard.dismiss();
+                              });
+                            } else {
+                              setShowTicketTypeCustomInput(false);
+                              Keyboard.dismiss();
+                            }
+                          }}
+                        />
+                        <TouchableOpacity
+                          style={styles.backToPickerButton}
+                          onPress={() => {
+                            setShowTicketTypeCustomInput(false);
+                            setShowTicketTypePicker(true);
+                          }}
+                        >
+                          <Text style={styles.backToPickerText}>Back to list</Text>
+                        </TouchableOpacity>
+                      </View>
+                    )}
+                  </View>
+                </View>
+              ))}
+            </ScrollView>
+          </View>
+        );
+
+                   case 3: // Accommodation
+        return (
+          <View style={[styles.stepContainer, { marginTop: -1 }]}>
+            <ScrollView style={{ width: '100%' }} showsVerticalScrollIndicator={false}>
+              {data.festival.map((festival, index) => (
+                <View key={index} style={styles.festivalTicketSection}>
+                  <Text style={styles.festivalTicketLabel}>{festival}</Text>
+                  <View style={styles.fieldSection}>
+                    <TouchableOpacity
+                      style={styles.pickerButton}
+                      onPress={() => {
+                        setSelectedFestivalForAccommodation(festival);
+                        setShowAccommodationPicker(true);
+                      }}
+                    >
+                      <Text style={[styles.pickerButtonText, data.accommodation[festival] ? styles.pickerButtonTextFilled : null]}>
+                        {data.accommodation[festival] || 'Select accommodation (optional)'}
+                      </Text>
+                      <MaterialIcons name="keyboard-arrow-down" size={24} color="#666" />
+                    </TouchableOpacity>
+                    
+                    {showAccommodationPicker && selectedFestivalForAccommodation === festival && (
+                      <View style={styles.pickerContainer}>
+                        <TouchableOpacity
+                          style={[styles.pickerOption, styles.customInputOption]}
+                          onPress={() => {
+                            setShowAccommodationPicker(false);
+                            setShowAccommodationCustomInput(true);
+                          }}
+                        >
+                          <Text style={[styles.pickerOptionText, styles.customInputText]}>✏️ Write yourself</Text>
+                          <MaterialIcons name="edit" size={20} color="#FF6B6B" />
+                        </TouchableOpacity>
+                        {accommodations.map((accommodation) => (
+                          <TouchableOpacity
+                            key={accommodation}
+                            style={[
+                              styles.pickerOption,
+                              animatingItem === accommodation && styles.pickerOptionSelected
+                            ]}
+                            onPress={() => {
+                              playSuccessAnimation(accommodation, () => {
+                                const newAccommodations = { ...data.accommodation, [festival]: accommodation };
+                                updateData('accommodation', newAccommodations);
+                                setShowAccommodationPicker(false);
+                              });
+                            }}
+                          >
+                            <Text style={[
+                              styles.pickerOptionText,
+                              animatingItem === accommodation && styles.pickerOptionTextSelected
+                            ]}>{accommodation}</Text>
+                            {data.accommodation[festival] === accommodation && (
+                              <MaterialIcons name="check" size={20} color="#FF6B6B" />
+                            )}
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    )}
+                    
+                    {showAccommodationCustomInput && selectedFestivalForAccommodation === festival && (
+                      <View>
+                        <TextInput
+                          ref={accommodationCustomInputRef}
+                          style={[
+                            styles.textInput,
+                            animatingItem === 'accommodation-custom' && styles.textInputSelected
+                          ]}
+                          placeholder="Enter accommodation type"
+                          placeholderTextColor="#666"
+                          returnKeyType="done"
+                          keyboardAppearance="dark"
+                          onSubmitEditing={(e) => {
+                            const customAccommodation = e.nativeEvent.text.trim();
+                            if (customAccommodation) {
+                              playSuccessAnimation('accommodation-custom', () => {
+                                const newAccommodations = { ...data.accommodation, [festival]: customAccommodation };
+                                updateData('accommodation', newAccommodations);
+                                setShowAccommodationCustomInput(false);
+                                Keyboard.dismiss();
+                              });
+                            } else {
+                              setShowAccommodationCustomInput(false);
+                              Keyboard.dismiss();
+                            }
+                          }}
+                        />
+                        <TouchableOpacity
+                          style={styles.backToPickerButton}
+                          onPress={() => {
+                            setShowAccommodationCustomInput(false);
+                            setShowAccommodationPicker(true);
+                          }}
+                        >
+                          <Text style={styles.backToPickerText}>Back to list</Text>
+                        </TouchableOpacity>
+                      </View>
+                    )}
+                  </View>
+                </View>
+              ))}
+            </ScrollView>
+          </View>
+        );
+
+             case 4: // Add Photos
+        return (
+          <View style={[styles.stepContainer, { marginTop: -1 }]}>
+            {data.photos.length === 0 && (
+              <Text style={styles.photoPromptText}>Profile Photos</Text>
+            )}
+            <View style={[styles.photoSection, data.photos.length > 0 && { justifyContent: 'flex-start' }]}>
+               {data.photos.length === 0 ? (
+                 <View style={styles.photoButtonContainer}>
+                   <Text style={styles.photoSubtext}>Tap to add your pictures</Text>
                    <TouchableOpacity
-                     style={[styles.pickerOption, styles.customInputOption]}
-                     onPress={() => handleCustomInput('festival')}
+                     style={styles.addPhotoButtonLarge}
+                     onPress={pickImage}
                    >
-                     <Text style={[styles.pickerOptionText, styles.customInputText]}>✏️ Write yourself</Text>
-                     <MaterialIcons name="edit" size={20} color="#FF6B6B" />
+                     <MaterialIcons name="add-a-photo" size={48} color="#FFFFFF" />
                    </TouchableOpacity>
-                   {festivals.map((festival) => (
-                     <TouchableOpacity
-                       key={festival}
-                       style={styles.pickerOption}
-                       onPress={() => {
-                         updateData('festival', festival);
-                         setShowFestivalPicker(false);
-                         handleNext();
-                       }}
-                     >
-                       <Text style={styles.pickerOptionText}>{festival}</Text>
-                       {data.festival === festival && (
-                         <MaterialIcons name="check" size={20} color="#FF6B6B" />
-                       )}
-                     </TouchableOpacity>
-                   ))}
                  </View>
-               )}
-             </View>
-           </View>
-         );
-
-             case 2: // Ticket Type Selection
-         return (
-           <View style={styles.stepContainer}>
-             <View style={styles.fieldSection}>
-               <TouchableOpacity
-                 style={styles.pickerButton}
-                 onPress={() => setShowTicketTypePicker(!showTicketTypePicker)}
-               >
-                 <Text style={[styles.pickerButtonText, data.ticketType ? styles.pickerButtonTextFilled : null]}>
-                   {data.ticketType || 'Select your ticket type'}
-                 </Text>
-                 <MaterialIcons name="keyboard-arrow-down" size={24} color="#666" />
-               </TouchableOpacity>
-               
-               {showTicketTypePicker && (
-                 <View style={styles.pickerContainer}>
+               ) : (
+                 <>
                    <TouchableOpacity
-                     style={[styles.pickerOption, styles.customInputOption]}
-                     onPress={() => handleCustomInput('ticketType')}
+                     style={styles.addPhotoButton}
+                     onPress={pickImage}
                    >
-                     <Text style={[styles.pickerOptionText, styles.customInputText]}>✏️ Write yourself</Text>
-                     <MaterialIcons name="edit" size={20} color="#FF6B6B" />
+                     <Text style={styles.addPhotoButtonText}>
+                       Add More Photos ({data.photos.length}/6)
+                     </Text>
                    </TouchableOpacity>
-                   {ticketTypes.map((ticketType) => (
-                     <TouchableOpacity
-                       key={ticketType}
-                       style={styles.pickerOption}
-                       onPress={() => {
-                         updateData('ticketType', ticketType);
-                         setShowTicketTypePicker(false);
-                         handleNext();
-                       }}
-                     >
-                       <Text style={styles.pickerOptionText}>{ticketType}</Text>
-                       {data.ticketType === ticketType && (
-                         <MaterialIcons name="check" size={20} color="#FF6B6B" />
-                       )}
-                     </TouchableOpacity>
-                   ))}
-                 </View>
+
+                   <View style={styles.photoGrid}>
+                     {data.photos.map((photo, index) => (
+                       <View key={index} style={styles.photoItem}>
+                         <Image source={{ uri: photo }} style={styles.photoImage} />
+                         
+                         {/* Order number */}
+                         <View style={styles.photoNumber}>
+                           <Text style={styles.photoNumberText}>{index + 1}</Text>
+                         </View>
+                         
+                         {/* Remove button */}
+                         <TouchableOpacity
+                           style={styles.removePhotoButton}
+                           onPress={() => removePhoto(index)}
+                         >
+                           <MaterialIcons name="close" size={18} color="#FFFFFF" />
+                         </TouchableOpacity>
+                         
+                         {/* Reorder buttons */}
+                         <View style={styles.reorderButtons}>
+                           {index > 0 && (
+                             <TouchableOpacity
+                               style={styles.reorderButton}
+                               onPress={() => movePhoto(index, index - 1)}
+                             >
+                               <MaterialIcons name="arrow-back" size={16} color="#FFFFFF" />
+                             </TouchableOpacity>
+                           )}
+                           {index < data.photos.length - 1 && (
+                             <TouchableOpacity
+                               style={styles.reorderButton}
+                               onPress={() => movePhoto(index, index + 1)}
+                             >
+                               <MaterialIcons name="arrow-forward" size={16} color="#FFFFFF" />
+                             </TouchableOpacity>
+                           )}
+                         </View>
+                       </View>
+                     ))}
+                   </View>
+                 </>
                )}
              </View>
-           </View>
-         );
+          </View>
+        );
 
-                    case 3: // Accommodation
-         return (
-           <View style={styles.stepContainer}>
-             <View style={styles.fieldSection}>
-               <TouchableOpacity
-                 style={styles.pickerButton}
-                 onPress={() => setShowAccommodationPicker(!showAccommodationPicker)}
-               >
-                 <Text style={[styles.pickerButtonText, data.accommodation ? styles.pickerButtonTextFilled : null]}>
-                   {data.accommodation || 'Select accommodation (optional)'}
-                 </Text>
-                 <MaterialIcons name="keyboard-arrow-down" size={24} color="#666" />
-               </TouchableOpacity>
-               
-               {showAccommodationPicker && (
-                 <View style={styles.pickerContainer}>
-                   <TouchableOpacity
-                     style={[styles.pickerOption, styles.customInputOption]}
-                     onPress={() => handleCustomInput('accommodation')}
-                   >
-                     <Text style={[styles.pickerOptionText, styles.customInputText]}>✏️ Write yourself</Text>
-                     <MaterialIcons name="edit" size={20} color="#FF6B6B" />
-                   </TouchableOpacity>
-                   {accommodations.map((accommodation) => (
-                     <TouchableOpacity
-                       key={accommodation}
-                       style={styles.pickerOption}
-                       onPress={() => {
-                         updateData('accommodation', accommodation);
-                         setShowAccommodationPicker(false);
-                         handleNext();
-                       }}
-                     >
-                       <Text style={styles.pickerOptionText}>{accommodation}</Text>
-                       {data.accommodation === accommodation && (
-                         <MaterialIcons name="check" size={20} color="#FF6B6B" />
-                       )}
-                     </TouchableOpacity>
-                   ))}
-                 </View>
-               )}
-             </View>
-           </View>
-         );
+            case 5: // Bio
+        return (
+          <View style={[styles.stepContainer, { marginTop: -1 }]}>
+            <View style={styles.fieldSection}>
+              <TextInput
+                style={[styles.bioInput, { height: 120 }]}
+                value={data.bio}
+                onChangeText={(text) => {
+                  if (text.length <= 150) {
+                    updateData('bio', text);
+                  }
+                }}
+                placeholder="Tell us about yourself..."
+                placeholderTextColor="#666"
+                multiline
+                maxLength={150}
+                textAlignVertical="top"
+                keyboardAppearance="dark"
+              />
+              <Text style={styles.characterCount}>{data.bio.length}/150</Text>
+            </View>
+          </View>
+        );
 
-             case 4: // Location Access
-         return (
-           <View style={styles.stepContainer}>
-             <View style={styles.locationSection}>
+            case 6: // Location Access
+        return (
+          <View style={[styles.stepContainer, { marginTop: -1 }]}>
+            <View style={[styles.locationSection, { marginTop: -70 }]}>
                <TouchableOpacity
                  style={styles.locationButton}
                  onPress={handleLocationPermission}
@@ -506,6 +926,32 @@ const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }) => {
                
                <Text style={styles.locationText}>
                  Location access is required to use FestivalMatcher. Your location will be used to find people nearby at festivals. Rough location sharing to other users is enabled by default but you can turn it off in settings for better privacy control.
+               </Text>
+             </View>
+          </View>
+        );
+
+            case 7: // Push Notifications
+        return (
+          <View style={[styles.stepContainer, { marginTop: -1 }]}>
+            <View style={[styles.locationSection, { marginTop: -150 }]}>
+               <TouchableOpacity
+                 style={styles.locationButton}
+                 onPress={() => {
+                   setData(prev => ({ ...prev, pushNotifications: !prev.pushNotifications }));
+                   setTimeout(() => {
+                     handleComplete();
+                   }, 300);
+                 }}
+               >
+                 <MaterialIcons name="notifications" size={24} color="#FFFFFF" />
+                 <Text style={styles.locationButtonText}>
+                   {data.pushNotifications ? 'Push Notifications Enabled' : 'Enable Push Notifications (Optional)'}
+                 </Text>
+               </TouchableOpacity>
+               
+               <Text style={styles.locationText}>
+                 Stay updated with matches, messages, and festival updates. You can change this anytime in settings.
                </Text>
              </View>
            </View>
@@ -542,8 +988,8 @@ const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }) => {
               </View>
             ) : currentStep !== 4 ? (
               <>
-                <Text style={styles.stepTitle}>{steps[currentStep].title}</Text>
-                <Text style={styles.stepSubtitle}>{steps[currentStep].subtitle}</Text>
+                <Text style={[styles.stepTitle, (currentStep === 5 || currentStep === 6) && { marginTop: 199 }]}>{steps[currentStep].title}</Text>
+                <Text style={[styles.stepSubtitle, currentStep === 1 && { marginTop: 40 }]}>{steps[currentStep].subtitle}</Text>
               </>
             ) : null}
             
@@ -568,21 +1014,31 @@ const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }) => {
           )}
           
           {currentStep !== steps.length - 1 && (
-            <TouchableOpacity
+            <Animated.View
               style={[
-                styles.nextButton,
-                !canProceed() && styles.nextButtonDisabled
+                { alignItems: 'flex-start' }
               ]}
-              onPress={handleNext}
-              disabled={!canProceed()}
             >
-              <Text style={styles.nextButtonText}>Next</Text>
-              <MaterialIcons 
-                name="arrow-forward" 
-                size={24} 
-                color="#FFFFFF" 
-              />
-            </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.nextButton,
+                  !canProceed() && styles.nextButtonDisabled
+                ]}
+                onPress={() => {
+                  if (canProceed()) {
+                    playSuccessAnimation('next-button', handleNext);
+                  }
+                }}
+                disabled={!canProceed()}
+              >
+                <Text style={styles.nextButtonText}>Next</Text>
+                <MaterialIcons 
+                  name="arrow-forward" 
+                  size={24} 
+                  color="#FFFFFF" 
+                />
+              </TouchableOpacity>
+            </Animated.View>
           )}
         </View>
 
@@ -661,10 +1117,11 @@ const styles = StyleSheet.create({
   },
 
   stepTitle: {
-    fontSize: 28,
+    fontSize: 32,
     fontWeight: 'bold',
     color: '#FFFFFF',
     marginBottom: -30,
+    marginTop: 59,
     textAlign: 'center',
   },
   stepSubtitle: {
@@ -702,6 +1159,37 @@ const styles = StyleSheet.create({
     width: '100%',
     marginBottom: 20,
   },
+  festivalTicketSection: {
+    width: '100%',
+    marginBottom: 25,
+  },
+  festivalTicketLabel: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#FF6B6B',
+    marginBottom: 10,
+    textTransform: 'uppercase',
+  },
+  selectedChipsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginBottom: 15,
+    gap: 10,
+  },
+  festivalChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FF6B6B',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 20,
+    gap: 6,
+  },
+  festivalChipText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '500',
+  },
   locationSection: {
     width: '100%',
     alignItems: 'center',
@@ -713,6 +1201,134 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     flex: 1,
+  },
+  photoSection: {
+    width: '100%',
+    alignItems: 'center',
+    flex: 1,
+    justifyContent: 'center',
+  },
+  photoPromptText: {
+    fontSize: 32,
+    color: '#FFFFFF',
+    fontWeight: 'bold',
+    textAlign: 'center',
+    marginBottom: -108,
+    marginTop: 180,
+  },
+  photoButtonContainer: {
+    alignItems: 'center',
+    width: '100%',
+    marginTop: -84,
+  },
+  photoSubtext: {
+    fontSize: 16,
+    color: '#999',
+    textAlign: 'center',
+    marginBottom: 16,
+  },
+  addPhotoButtonLarge: {
+    width: '100%',
+    backgroundColor: '#FF6B6B',
+    borderRadius: 16,
+    paddingVertical: 40,
+    paddingHorizontal: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  addPhotoButtonLargeText: {
+    color: '#FFFFFF',
+    fontSize: 20,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    marginTop: 16,
+  },
+  addPhotoButton: {
+    width: '100%',
+    backgroundColor: 'rgba(255, 107, 107, 0.2)',
+    borderRadius: 16,
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: '#FF6B6B',
+    borderStyle: 'dashed',
+    marginBottom: 20,
+  },
+  addPhotoButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  photoGrid: {
+    width: '100%',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginTop: 10,
+    justifyContent: 'flex-start',
+  },
+  photoItem: {
+    width: (width - 64) / 3, // 3 columns with gaps
+    aspectRatio: 4 / 5,
+    borderRadius: 12,
+    overflow: 'hidden',
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    position: 'relative',
+    marginRight: 6,
+    marginBottom: 12,
+  },
+  photoImage: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
+  },
+  photoNumber: {
+    position: 'absolute',
+    top: 8,
+    left: 8,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    borderRadius: 12,
+    width: 24,
+    height: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  photoNumberText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  removePhotoButton: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+    borderRadius: 15,
+    width: 30,
+    height: 30,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+  },
+  reorderButtons: {
+    position: 'absolute',
+    bottom: 8,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    justifyContent: 'center',
+  },
+  reorderButton: {
+    backgroundColor: 'rgba(255, 107, 107, 0.9)',
+    borderRadius: 16,
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginHorizontal: 4,
   },
   photosSummaryContainer: {
     width: '100%',
@@ -754,10 +1370,30 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.1)',
     borderRadius: 12,
     paddingHorizontal: 20,
+    fontSize: 20,
+    color: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  textInputSelected: {
+    color: '#FF6B6B',
+  },
+  bioInput: {
+    width: '100%',
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 12,
+    paddingHorizontal: 20,
+    paddingVertical: 15,
     fontSize: 18,
     color: '#FFFFFF',
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  characterCount: {
+    fontSize: 14,
+    color: '#999',
+    textAlign: 'right',
+    marginTop: 8,
   },
   pickerButton: {
     width: '100%',
@@ -772,7 +1408,7 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255, 255, 255, 0.2)',
   },
   pickerButtonText: {
-    fontSize: 18,
+    fontSize: 20,
     color: '#666',
   },
   pickerButtonTextFilled: {
@@ -787,17 +1423,23 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255, 255, 255, 0.2)',
   },
   pickerOption: {
+    width: '100%',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingVertical: 16,
     paddingHorizontal: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
   },
   pickerOptionText: {
-    fontSize: 16,
+    fontSize: 18,
     color: '#FFFFFF',
+  },
+  pickerOptionSelected: {
+    // No background change
+  },
+  pickerOptionTextSelected: {
+    color: '#FF6B6B',
+    fontWeight: '600',
   },
   customInputOption: {
     backgroundColor: 'rgba(255, 107, 107, 0.1)',
@@ -846,81 +1488,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: 20,
     lineHeight: 24,
-  },
-  photoGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'center',
-    gap: 10,
-  },
-  photoContainer: {
-    width: (width - 60) / 3,
-    height: (width - 60) / 3,
-    borderRadius: 12,
-    overflow: 'hidden',
-    position: 'relative',
-  },
-  photo: {
-    width: '100%',
-    height: '100%',
-  },
-  photoOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.3)',
-    justifyContent: 'space-between',
-    padding: 8,
-  },
-  removePhotoButton: {
-    alignSelf: 'flex-end',
-    backgroundColor: 'rgba(255, 0, 0, 0.8)',
-    borderRadius: 12,
-    width: 24,
-    height: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  profilePhotoBadge: {
-    position: 'absolute',
-    top: 8,
-    left: 8,
-    backgroundColor: '#FF6B6B',
-    borderRadius: 10,
-    width: 20,
-    height: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  setProfilePhotoButton: {
-    backgroundColor: 'rgba(0, 0, 0, 0.8)',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
-    alignSelf: 'center',
-  },
-  setProfilePhotoText: {
-    color: '#FFFFFF',
-    fontSize: 10,
-    fontWeight: '500',
-  },
-  addPhotoButton: {
-    width: (width - 60) / 3,
-    height: (width - 60) / 3,
-    borderRadius: 12,
-    borderWidth: 2,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
-    borderStyle: 'dashed',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-  },
-  addPhotoText: {
-    color: '#666',
-    fontSize: 12,
-    marginTop: 4,
   },
   profileCardPreview: {
     alignItems: 'center',
@@ -1402,23 +1969,6 @@ const styles = StyleSheet.create({
     transform: [{ scale: 1.1 }],
     zIndex: 1000,
   },
-  photoNumberBadge: {
-    position: 'absolute',
-    top: 4,
-    left: 4,
-    backgroundColor: '#FF6B6B',
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  photoNumberText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: 'bold',
-  },
-
   navigationContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -1475,6 +2025,17 @@ const styles = StyleSheet.create({
     fontSize: 14,
     textAlign: 'center',
     marginTop: 8,
+  },
+  backToPickerButton: {
+    alignItems: 'center',
+    paddingVertical: 12,
+    marginTop: 12,
+  },
+  backToPickerText: {
+    color: '#FF6B6B',
+    fontSize: 14,
+    fontWeight: '600',
+    textDecorationLine: 'underline',
   },
   modalOverlay: {
     flex: 1,

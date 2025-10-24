@@ -22,6 +22,7 @@ import { useOnboarding } from '../context/OnboardingContext';
 import { User } from '../types';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { MatchingService } from '../services/matchingService';
 import { PhotoService } from '../services/photoService';
 import { DeviceAuthService } from '../services/deviceAuthService';
@@ -45,6 +46,8 @@ const ProfileScreen: React.FC = () => {
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
   const [scrollPosition, setScrollPosition] = useState(0);
   const [isScrolling, setIsScrolling] = useState(false);
+  const [showProfileModal, setShowProfileModal] = useState(false);
+  const [modalPhotoIndex, setModalPhotoIndex] = useState(0);
   const scrollViewRef = React.useRef<ScrollView>(null);
   const infoHeightAnim = React.useRef(new Animated.Value(200)).current;
   
@@ -58,6 +61,56 @@ const ProfileScreen: React.FC = () => {
     { icon: "location-on" as const, text: "Biddinghuizen • 6 min ago" },
     { icon: "location-on" as const, text: `Show on Map ?` }
   ];
+
+  // Welcome modal state
+  const [showWelcomeModal, setShowWelcomeModal] = useState(false);
+  const welcomeScaleAnim = useRef(new Animated.Value(0)).current;
+  const welcomeOpacityAnim = useRef(new Animated.Value(0)).current;
+
+  // Check for welcome modal on mount
+  useEffect(() => {
+    const checkWelcomeModal = async () => {
+      const shouldShow = await AsyncStorage.getItem('show_welcome_modal');
+      if (shouldShow === 'true') {
+        await AsyncStorage.removeItem('show_welcome_modal');
+        setTimeout(() => {
+          setShowWelcomeModal(true);
+          // Animate in
+          Animated.parallel([
+            Animated.spring(welcomeScaleAnim, {
+              toValue: 1,
+              tension: 50,
+              friction: 7,
+              useNativeDriver: true,
+            }),
+            Animated.timing(welcomeOpacityAnim, {
+              toValue: 1,
+              duration: 300,
+              useNativeDriver: true,
+            }),
+          ]).start();
+        }, 500); // Delay to let the screen render
+      }
+    };
+    checkWelcomeModal();
+  }, []);
+
+  const closeWelcomeModal = () => {
+    Animated.parallel([
+      Animated.timing(welcomeScaleAnim, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+      Animated.timing(welcomeOpacityAnim, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      setShowWelcomeModal(false);
+    });
+  };
 
  // Shorter default height
 
@@ -385,7 +438,7 @@ const ProfileScreen: React.FC = () => {
               style={[
                 styles.cardInfo,
                 { height: infoHeightAnim },
-                { zIndex: 1000 } // Ensure animated wrapper stays in front
+                { zIndex: 100000 } // Higher z-index to ensure it's above tap areas
               ]}
             >
                               {/* Glassmorphism backdrop with fade */}
@@ -394,8 +447,10 @@ const ProfileScreen: React.FC = () => {
                   locations={[0, 0.3, 0.7, 1]}
                   style={styles.glassBackdrop}
                 />
-              <View 
+              <TouchableOpacity 
                 style={[styles.cardInfoScroll, styles.cardInfoContent]}
+                onPress={() => setShowProfileModal(true)}
+                activeOpacity={0.9}
               >
                 <View style={styles.nameAgeContainer}>
                   <View style={styles.nameAgeRow}>
@@ -407,40 +462,32 @@ const ProfileScreen: React.FC = () => {
                       {profileData.age}
                     </Text>
                   </View>
-                  
-                  <View style={styles.festivalContainer}>
-                    <Text style={styles.festivalName}>{profileData.festival}</Text>
-                  </View>
-                </View>
 
-                <Text style={styles.cardBio}>
-                  <Text style={styles.bioLabel}>Ticket: </Text>
-                  <Text style={styles.bioText}>
-                    {profileData.ticketType}
-                  </Text>
-                  {'\n'}
-                  <Text style={styles.bioLabel}>   Stay: </Text>
-                  <Text style={styles.bioText}>
-                    {profileData.accommodation}
-                  </Text>
-                </Text>
-                
-                <Text style={styles.bioSection}>
                   {(() => {
                     const bioText = profileData.interests?.join(', ') || '';
                     if (bioText) {
                       return (
-                        <>
-                          <Text style={styles.bioQuote}>"</Text>
-                          {bioText}
-                          <Text style={styles.bioQuote}>"</Text>
-                        </>
+                        <Text style={styles.bioSection}>
+                          -  {bioText}
+                        </Text>
                       );
                     }
-                    return bioText;
+                    return null;
                   })()}
-                </Text>
-              </View>
+
+                  <View style={styles.festivalContainer}>
+                    {profileData.festival.split(',').map((fest, index) => {
+                      const festivalName = fest.trim();
+                      
+                      return (
+                        <View key={index} style={styles.festivalRow}>
+                          <Text style={styles.festivalName}>{festivalName}</Text>
+                        </View>
+                      );
+                    })}
+                  </View>
+                </View>
+              </TouchableOpacity>
             </Animated.View>
           </View>
           
@@ -552,6 +599,170 @@ const ProfileScreen: React.FC = () => {
                 </TouchableOpacity>
               </View>
             </View>
+          </View>
+        </Modal>
+      )}
+
+      {/* Profile Modal */}
+      <Modal
+        visible={showProfileModal}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowProfileModal(false)}
+      >
+        <View style={styles.profileModalOverlay}>
+          <View style={styles.profileModalContainer}>
+            <TouchableOpacity
+              style={styles.profileModalClose}
+              onPress={() => setShowProfileModal(false)}
+            >
+              <MaterialIcons name="close" size={28} color="#FFFFFF" />
+            </TouchableOpacity>
+
+            <ScrollView
+              style={styles.profileModalScroll}
+              contentContainerStyle={styles.profileModalContent}
+              showsVerticalScrollIndicator={true}
+            >
+              {/* Profile Photos */}
+              <View style={styles.profileModalPhotos}>
+                <ScrollView
+                  horizontal
+                  pagingEnabled
+                  showsHorizontalScrollIndicator={false}
+                  style={styles.profileModalPhotoScroll}
+                  ref={(ref) => {
+                    if (ref) {
+                      ref.scrollTo({ x: modalPhotoIndex * width * 0.9, animated: false });
+                    }
+                  }}
+                >
+                  {profileData.photos && profileData.photos.length > 0 ? (
+                    profileData.photos.map((photo, index) => (
+                      <TouchableOpacity
+                        key={index}
+                        style={styles.profileModalPhotoContainer}
+                        onPress={() => {
+                          const nextIndex = (index + 1) % profileData.photos.length;
+                          setModalPhotoIndex(nextIndex);
+                        }}
+                        activeOpacity={0.9}
+                      >
+                        <Image
+                          source={{ uri: photo }}
+                          style={styles.profileModalPhoto}
+                          resizeMode="cover"
+                        />
+                      </TouchableOpacity>
+                    ))
+                  ) : (
+                    <View style={styles.profileModalPhotoPlaceholder}>
+                      <MaterialIcons name="person" size={80} color="#666" />
+                      <Text style={styles.profileModalPhotoPlaceholderText}>No photos</Text>
+                    </View>
+                  )}
+                </ScrollView>
+              </View>
+
+              {/* Profile Info */}
+              <View style={styles.nameAgeContainer}>
+                <View style={styles.nameAgeRow}>
+                  <Text style={styles.cardName}>
+                    {profileData.name}
+                  </Text>
+                  <Text style={styles.ageSeparator}>, </Text>
+                  <Text style={styles.cardAge}>
+                    {profileData.age}
+                  </Text>
+                </View>
+
+                {(() => {
+                  const bioText = profileData.interests?.join(', ') || '';
+                  if (bioText) {
+                    return (
+                      <Text style={styles.bioSection}>
+                        -  {bioText}
+                      </Text>
+                    );
+                  }
+                  return null;
+                })()}
+
+                <View style={styles.festivalContainer}>
+                  {profileData.festival.split(',').map((fest, index) => {
+                    const festivalName = fest.trim();
+                    
+                    const ticketTypes = profileData.ticketType ? profileData.ticketType.split(',').reduce((acc, item) => {
+                      const match = item.match(/(.+?):\s*(.+)/);
+                      if (match) {
+                        acc[match[1].trim()] = match[2].trim();
+                      }
+                      return acc;
+                    }, {} as { [key: string]: string }) : {};
+                    
+                    const accommodations = profileData.accommodation ? profileData.accommodation.split(',').reduce((acc, item) => {
+                      const match = item.match(/(.+?):\s*(.+)/);
+                      if (match) {
+                        acc[match[1].trim()] = match[2].trim();
+                      }
+                      return acc;
+                    }, {} as { [key: string]: string }) : {};
+                    
+                    const ticketType = ticketTypes[festivalName];
+                    const accommodation = accommodations[festivalName];
+                    
+                    return (
+                      <View key={index} style={styles.festivalRow}>
+                        <Text style={styles.festivalName}>{festivalName}</Text>
+                        <View style={styles.festivalDetails}>
+                          {ticketType && (
+                            <Text style={styles.festivalDetailText}>
+                              🎫 {ticketType}
+                            </Text>
+                          )}
+                          {accommodation && (
+                            <Text style={styles.festivalDetailText}>
+                              🏠 {accommodation}
+                            </Text>
+                          )}
+                        </View>
+                      </View>
+                    );
+                  })}
+                </View>
+              </View>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Welcome Modal */}
+      {showWelcomeModal && (
+        <Modal
+          transparent
+          visible={showWelcomeModal}
+          animationType="none"
+        >
+          <View style={styles.welcomeModalOverlay}>
+            <Animated.View
+              style={[
+                styles.welcomeModalContent,
+                {
+                  transform: [{ scale: welcomeScaleAnim }],
+                  opacity: welcomeOpacityAnim,
+                },
+              ]}
+            >
+              <MaterialIcons name="celebration" size={60} color="#FF6B6B" style={{ marginBottom: 20 }} />
+              <Text style={styles.welcomeModalTitle}>Welcome to FestivalMatcher!</Text>
+              <Text style={styles.welcomeModalMessage}>Remember to be kind to others</Text>
+              <TouchableOpacity
+                style={styles.welcomeModalButton}
+                onPress={closeWelcomeModal}
+              >
+                <Text style={styles.welcomeModalButtonText}>Let's Go!</Text>
+              </TouchableOpacity>
+            </Animated.View>
           </View>
         </Modal>
       )}
@@ -720,17 +931,29 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontWeight: '600',
   },
+  festivalRow: {
+    width: '100%',
+    marginBottom: 5,
+  },
   festivalName: {
     fontSize: 22,
     color: '#ff4444',
     fontWeight: 'bold',
     textTransform: 'uppercase',
     textAlign: 'left',
-    flexWrap: 'wrap',
-    flexShrink: 1,
     textShadowColor: '#000000',
     textShadowOffset: { width: 1, height: 1 },
     textShadowRadius: 1,
+  },
+  festivalDetails: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 2,
+  },
+  festivalDetailText: {
+    fontSize: 14,
+    color: '#CCCCCC',
+    fontWeight: '500',
   },
   festivalContainer: {
     backgroundColor: 'rgba(255, 107, 107, 0.15)',
@@ -739,13 +962,13 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
     borderWidth: 1,
     borderColor: 'rgba(255, 107, 107, 0.3)',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     justifyContent: 'center',
     marginBottom: 2,
     marginLeft: -8,
+    flexDirection: 'column',
     marginTop: 0,
     overflow: 'hidden',
-    flexWrap: 'wrap',
   },
 
   currentlyAtContainer: {
@@ -790,7 +1013,7 @@ const styles = StyleSheet.create({
   },
   bioQuote: {
     fontSize: 17,
-    color: '#ff4444',
+    color: '#FFFFFF',
     fontWeight: 'normal',
     textShadowColor: '#000000',
     textShadowOffset: { width: 1, height: 1 },
@@ -816,7 +1039,7 @@ const styles = StyleSheet.create({
     left: 0,
     top: 0,
     width: width / 2, // Half the card width
-    height: '100%', // Cover the entire card
+    height: height * 0.6, // Only cover the photo area, not the profile info
     zIndex: 99999, // Extremely high z-index to ensure taps work over everything
   },
   rightTapArea: {
@@ -824,7 +1047,7 @@ const styles = StyleSheet.create({
     right: 0,
     top: 0,
     width: width / 2, // Half the card width
-    height: '100%', // Cover the entire card
+    height: height * 0.6, // Only cover the photo area, not the profile info
     zIndex: 99999, // Extremely high z-index to ensure taps work over everything
   },
   bottomLeftTapArea: {
@@ -1128,9 +1351,9 @@ const styles = StyleSheet.create({
     width: 70,
     height: 70,
     borderRadius: 35,
-    backgroundColor: '#333333',
+    backgroundColor: '#555555',
     borderWidth: 1,
-    borderColor: '#666666',
+    borderColor: '#777777',
     justifyContent: 'center',
     alignItems: 'center',
     shadowColor: '#000',
@@ -1238,6 +1461,116 @@ const styles = StyleSheet.create({
     fontSize: 16,
     marginTop: 10,
     textAlign: 'center',
+  },
+  welcomeModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.85)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  welcomeModalContent: {
+    backgroundColor: '#2D2D2D',
+    borderRadius: 25,
+    padding: 40,
+    width: width * 0.85,
+    alignItems: 'center',
+    shadowColor: '#FF6B6B',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.5,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  welcomeModalTitle: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+    textAlign: 'center',
+    marginBottom: 15,
+  },
+  welcomeModalMessage: {
+    fontSize: 18,
+    color: '#CCCCCC',
+    textAlign: 'center',
+    marginBottom: 30,
+  },
+  welcomeModalButton: {
+    backgroundColor: '#FF6B6B',
+    paddingHorizontal: 50,
+    paddingVertical: 15,
+    borderRadius: 25,
+    shadowColor: '#FF6B6B',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  welcomeModalButtonText: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  profileModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.9)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  profileModalContainer: {
+    width: width * 0.9,
+    height: height * 0.8,
+    backgroundColor: '#2D2D2D',
+    borderRadius: 20,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  profileModalClose: {
+    position: 'absolute',
+    top: 15,
+    right: 15,
+    zIndex: 10,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    borderRadius: 20,
+    padding: 5,
+  },
+  profileModalScroll: {
+    flex: 1,
+  },
+  profileModalContent: {
+    paddingBottom: 25,
+    paddingLeft: 27,
+    paddingRight: 20,
+  },
+  profileModalPhotos: {
+    height: height * 0.4,
+    marginBottom: 20,
+    alignItems: 'center',
+  },
+  profileModalPhotoScroll: {
+    flex: 1,
+  },
+  profileModalPhotoContainer: {
+    width: width * 0.9,
+    height: height * 0.4,
+  },
+  profileModalPhoto: {
+    width: width * 0.9,
+    height: height * 0.4,
+  },
+  profileModalPhotoPlaceholder: {
+    width: width * 0.9,
+    height: height * 0.4,
+    backgroundColor: '#1A1A1A',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  profileModalPhotoPlaceholderText: {
+    color: '#666',
+    fontSize: 16,
+    marginTop: 10,
   },
 });
   

@@ -546,39 +546,64 @@ const MatchesScreen: React.FC = () => {
                             {selectedMatch.user.age}
                           </Text>
                         </View>
-                        
-                        <View style={styles.festivalContainer}>
-                          <Text style={styles.festivalName}>{selectedMatch.user.festival}</Text>
-                        </View>
-                      </View>
 
-                      <Text style={styles.cardBio}>
-                        <Text style={styles.bioLabel}>Ticket: </Text>
-                        <Text style={styles.bioText}>
-                          {selectedMatch.user.ticketType}
-                        </Text>
-                        {'\n'}
-                        <Text style={styles.bioLabel}>   Stay: </Text>
-                        <Text style={styles.bioText}>
-                          {selectedMatch.user.accommodationType}
-                        </Text>
-                      </Text>
-                      
-                      <Text style={styles.bioSection}>
                         {(() => {
                           const bioText = selectedMatch.user.interests?.join(', ') || '';
                           if (bioText) {
                             return (
-                              <>
-                                <Text style={styles.bioQuote}>"</Text>
-                                {bioText}
-                                <Text style={styles.bioQuote}>"</Text>
-                              </>
+                              <Text style={styles.bioSection}>
+                                -  {bioText}
+                              </Text>
                             );
                           }
-                          return bioText;
+                          return null;
                         })()}
-                      </Text>
+
+                        <View style={styles.festivalContainer}>
+                          {selectedMatch.user.festival.split(',').map((fest, index) => {
+                            const festivalName = fest.trim();
+                            
+                            // Parse ticket types
+                            const ticketTypes = selectedMatch.user.ticketType ? selectedMatch.user.ticketType.split(',').reduce((acc, item) => {
+                              const match = item.match(/(.+?):\s*(.+)/);
+                              if (match) {
+                                acc[match[1].trim()] = match[2].trim();
+                              }
+                              return acc;
+                            }, {} as { [key: string]: string }) : {};
+                            
+                            // Parse accommodations
+                            const accommodations = selectedMatch.user.accommodationType ? selectedMatch.user.accommodationType.split(',').reduce((acc, item) => {
+                              const match = item.match(/(.+?):\s*(.+)/);
+                              if (match) {
+                                acc[match[1].trim()] = match[2].trim();
+                              }
+                              return acc;
+                            }, {} as { [key: string]: string }) : {};
+                            
+                            const ticketType = ticketTypes[festivalName];
+                            const accommodation = accommodations[festivalName];
+                            
+                            return (
+                              <View key={index} style={styles.festivalRow}>
+                                <Text style={styles.festivalName}>{festivalName}</Text>
+                                <View style={styles.festivalDetails}>
+                                  {ticketType && (
+                                    <Text style={styles.festivalDetailText}>
+                                      🎫 {ticketType}
+                                    </Text>
+                                  )}
+                                  {accommodation && (
+                                    <Text style={styles.festivalDetailText}>
+                                      🏠 {accommodation}
+                                    </Text>
+                                  )}
+                                </View>
+                              </View>
+                            );
+                          })}
+                        </View>
+                      </View>
                     </ScrollView>
                   </View>
                 </LinearGradient>
@@ -865,12 +890,28 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 12,
+    flexDirection: 'column',
+    alignItems: 'flex-start',
+  },
+  festivalRow: {
+    width: '100%',
+    marginBottom: 5,
   },
   festivalName: {
     color: '#fff',
     fontSize: 12,
     fontWeight: 'bold',
     textTransform: 'uppercase',
+  },
+  festivalDetails: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 2,
+  },
+  festivalDetailText: {
+    fontSize: 11,
+    color: '#CCCCCC',
+    fontWeight: '500',
   },
   profileCardBio: {
     fontSize: 16,
@@ -1024,33 +1065,6 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#fff',
   },
-  festivalName: {
-    fontSize: 20,
-    color: '#ff4444',
-    fontWeight: 'bold',
-    textTransform: 'uppercase',
-    textAlign: 'left',
-    flexWrap: 'wrap',
-    flexShrink: 1,
-    textShadowColor: '#000000',
-    textShadowOffset: { width: 1, height: 1 },
-    textShadowRadius: 1,
-  },
-  festivalContainer: {
-    backgroundColor: 'rgba(255, 107, 107, 0.15)',
-    borderRadius: 12,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 107, 107, 0.3)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 2,
-    marginLeft: -8,
-    marginTop: 0,
-    overflow: 'hidden',
-    flexWrap: 'wrap',
-  },
   cardBio: {
     fontSize: 14,
     color: '#fff',
@@ -1069,7 +1083,7 @@ const styles = StyleSheet.create({
   },
   bioQuote: {
     fontSize: 17,
-    color: '#ff4444',
+    color: '#FFFFFF',
     fontWeight: 'normal',
     textShadowColor: '#000000',
     textShadowOffset: { width: 1, height: 1 },
