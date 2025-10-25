@@ -591,52 +591,42 @@ const SwipeScreen = () => {
               <ScrollView 
                 style={styles.cardInfoScroll}
                 contentContainerStyle={styles.cardInfoContent}
-                showsVerticalScrollIndicator={false}
+                showsVerticalScrollIndicator={true}
                 bounces={true}
+                scrollEventThrottle={8}
+                nestedScrollEnabled={true}
+                keyboardShouldPersistTaps="handled"
               >
                 <View style={styles.nameAgeContainer}>
                   {/* Festival chips - moved above name and age */}
                   <View style={styles.festivalChipsContainer}>
                     {(() => {
                       const realFestivals = currentUser.festival.split(',');
-                      const totalContainers = realFestivals.length < 3 ? 7 : 6;
-                      const fakeCount = Math.max(0, totalContainers - realFestivals.length);
                       
-                      // FIXED RULE: When there are exactly 2 real festivals, put ALL fake containers + 1 extra
-                      // This ensures the 2 real containers appear together on the same row at the bottom
-                      if (realFestivals.length === 2 && fakeCount > 0) {
-                        return (
-                          <>
-                            {Array.from({ length: fakeCount + 1 }).map((_, index) => (
-                              <View key={`fake-${index}`} style={styles.fakeFestivalChip}>
-                                <Text style={styles.fakeFestivalChipText}>               </Text>
-                              </View>
-                            ))}
-                            {realFestivals.map((fest, index) => {
-                              const festivalName = fest.trim();
-                              return (
-                                <View key={index} style={styles.festivalChip}>
-                                  <Text style={styles.festivalChipText}>{festivalName}</Text>
-                                </View>
-                              );
-                            })}
-                          </>
-                        );
-                      }
-                      
-                      // Default behavior: fake containers first, then real ones
+                      // Clean layout: Only real festivals, no empty containers
                       return (
                         <>
-                          {Array.from({ length: fakeCount }).map((_, index) => (
-                            <View key={`fake-${index}`} style={styles.fakeFestivalChip}>
-                              <Text style={styles.fakeFestivalChipText}>               </Text>
-                            </View>
-                          ))}
                           {realFestivals.map((fest, index) => {
                             const festivalName = fest.trim();
+                            const ticketTypes = currentUser.ticketType?.split(',') || [];
+                            const trimmedTicketType = ticketTypes[index]?.trim();
+                            
+                            // Check if this specific festival has premium/VIP ticket
+                            const hasPremiumTicket = trimmedTicketType && (
+                              trimmedTicketType.toLowerCase().includes('premium') ||
+                              trimmedTicketType.toLowerCase().includes('vip') ||
+                              trimmedTicketType.toLowerCase().includes('gold') ||
+                              trimmedTicketType.toLowerCase().includes('platinum')
+                            );
+                            
                             return (
                               <View key={index} style={styles.festivalChip}>
                                 <Text style={styles.festivalChipText}>{festivalName}</Text>
+                                {hasPremiumTicket && (
+                                  <View style={styles.premiumStarContainer}>
+                                    <MaterialIcons name="star" size={16} color="#FFFFFF" />
+                                  </View>
+                                )}
                               </View>
                             );
                           })}
@@ -666,6 +656,7 @@ const SwipeScreen = () => {
                     }
                     return null;
                   })()}
+
                 </View>
               </ScrollView>
             </Animated.View>
@@ -975,17 +966,20 @@ const styles = StyleSheet.create({
   cardInfoScroll: {
     flex: 1,
     zIndex: 1001, // Even higher z-index for scrollable content
+    minHeight: 200, // Ensure minimum touch area
   },
   cardInfoContent: {
-    paddingTop: 0,
+    paddingTop: -82, // 1px less negative padding
+    paddingBottom: 20, // Add bottom padding for better scroll area
     paddingLeft: 20,
     paddingRight: 60,
+    minHeight: 180, // Ensure content has minimum height for scrolling
   },
   nameAgeContainer: {
     flexDirection: 'column',
     alignItems: 'flex-start',
     marginBottom: 5,
-    marginTop: 10,
+    marginTop: -40, // Adjusted to match profile page height
   },
   nameAgeRow: {
     flexDirection: 'row',
@@ -1057,6 +1051,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     marginBottom: 10,
+    marginTop: 100, // Moved up 2px from +102 to +100
     gap: 8,
   },
   festivalChip: {
@@ -1169,7 +1164,7 @@ const styles = StyleSheet.create({
     left: 0,
     top: 0,
     width: width / 2, // Half the card width
-    height: height * 0.6, // Only cover the photo area, not the profile info
+      height: height * 0.57, // 57% of card height for optimal tap area
     zIndex: 99999, // Extremely high z-index to ensure taps work over everything
   },
   rightTapArea: {
@@ -1177,7 +1172,7 @@ const styles = StyleSheet.create({
     right: 0,
     top: 0,
     width: width / 2, // Half the card width
-    height: height * 0.6, // Only cover the photo area, not the profile info
+      height: height * 0.57, // 57% of card height for optimal tap area
     zIndex: 99999, // Extremely high z-index to ensure taps work over everything
   },
   bottomLeftTapArea: {
@@ -1464,6 +1459,121 @@ const styles = StyleSheet.create({
     color: '#666',
     fontSize: 16,
     marginTop: 10,
+  },
+  premiumStarContainer: {
+    position: 'absolute',
+    top: -5,
+    right: -5,
+    zIndex: 15,
+  },
+  infoChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 107, 107, 0.12)',
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 107, 107, 0.25)',
+    gap: 5,
+    shadowColor: '#FF6B6B',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  infoChipText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '600',
+    textShadowColor: 'rgba(0, 0, 0, 0.3)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 1,
+  },
+  infoChipIcon: {
+    textShadowColor: 'rgba(0, 0, 0, 0.2)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 1,
+  },
+  accommodationContainer: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 8,
+    justifyContent: 'space-between',
+  },
+  accommodationChip: {
+    backgroundColor: 'rgba(255, 107, 107, 0.15)',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 107, 107, 0.3)',
+    shadowColor: '#FF6B6B',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 3,
+    flex: 1,
+  },
+  accommodationHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 4,
+  },
+  festivalNameText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    textShadowColor: 'rgba(0, 0, 0, 0.3)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 1,
+  },
+  accommodationTypeText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '500',
+    textAlign: 'center',
+    textShadowColor: 'rgba(0, 0, 0, 0.3)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 1,
+  },
+  ticketContainer: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 8,
+    justifyContent: 'space-between',
+  },
+  ticketChip: {
+    backgroundColor: 'rgba(255, 107, 107, 0.15)',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 107, 107, 0.3)',
+    shadowColor: '#FF6B6B',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 3,
+    flex: 1,
+  },
+  ticketHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 4,
+  },
+  ticketTypeText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '500',
+    textAlign: 'center',
+    textShadowColor: 'rgba(0, 0, 0, 0.3)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 1,
   },
 });
 
