@@ -15,6 +15,7 @@ import {
   Keyboard,
   Modal,
   Animated,
+  ActivityIndicator,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -23,6 +24,7 @@ import * as Location from 'expo-location';
 import * as ImagePicker from 'expo-image-picker';
 import { useProfile } from '../context/ProfileContext';
 import { DeviceAuthService } from '../services/deviceAuthService';
+import { PhotoService } from '../services/photoService';
 
 const { width, height } = Dimensions.get('window');
 
@@ -106,6 +108,7 @@ const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }) => {
   const [showFestivalCustomInput, setShowFestivalCustomInput] = useState(false);
   const [showTicketTypeCustomInput, setShowTicketTypeCustomInput] = useState(false);
   const [showAccommodationCustomInput, setShowAccommodationCustomInput] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
 
   const steps = [
     { id: 0, title: 'Welcome to FestivalMatcher', subtitle: 'Tell us about yourself' },
@@ -327,6 +330,7 @@ const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }) => {
 
   const handleComplete = async () => {
     try {
+      setIsUploading(true);
       console.log('Starting onboarding completion...');
       
       // Validate age before proceeding
@@ -346,12 +350,38 @@ const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }) => {
       }
       console.log('Device sign in successful:', deviceResult.user);
 
+      // Upload photos if any were selected
+      let photoUrls: string[] = [];
+      if (data.photos.length > 0) {
+        console.log('Uploading photos...');
+        const deviceUserId = await DeviceAuthService.getDeviceUserId();
+        
+        // Test bucket access first
+        const { success, error: bucketError } = await PhotoService.testBucketAccess();
+        if (!success) {
+          console.warn('Photo storage bucket not configured, skipping photo upload:', bucketError);
+          // Continue without photos instead of failing
+        } else {
+          // Upload photos to Supabase Storage
+          const { urls, error } = await PhotoService.uploadPhotos(deviceUserId, data.photos);
+          
+          if (error) {
+            console.warn('Photo upload failed, continuing without photos:', error);
+            // Continue without photos instead of failing
+          } else {
+            photoUrls = urls;
+            console.log('Photos uploaded successfully:', photoUrls);
+          }
+        }
+      }
+
       // Update user profile with onboarding data
       console.log('Updating user profile with data:', {
         name: data.name,
         age: age,
         festival: data.festival.join(', '),
         accommodation: Object.entries(data.accommodation).map(([fest, accom]) => `${fest}: ${accom}`).join(', '),
+        photos: photoUrls.length,
       });
       
       const updateResult = await DeviceAuthService.updateUserProfile({
@@ -361,6 +391,7 @@ const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }) => {
         ticket_type: Object.entries(data.ticketType).map(([fest, ticket]) => `${fest}: ${ticket}`).join(', '),
         accommodation_type: Object.entries(data.accommodation).map(([fest, accom]) => `${fest}: ${accom}`).join(', '),
         interests: data.bio.trim() ? [data.bio.trim()] : [],
+        photos: photoUrls, // Add uploaded photo URLs
       });
       console.log('Database update result:', updateResult);
 
@@ -379,6 +410,7 @@ const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }) => {
         ticketType: Object.entries(data.ticketType).map(([fest, ticket]) => `${fest}: ${ticket}`).join(', '),
         accommodation: Object.entries(data.accommodation).map(([fest, accom]) => `${fest}: ${accom}`).join(', '),
         locationPermission: data.locationPermission,
+        photos: photoUrls, // Add uploaded photo URLs
       });
       console.log('Profile context updated');
 
@@ -391,6 +423,7 @@ const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }) => {
       onComplete();
     } catch (error) {
       console.error('Error completing onboarding:', error);
+      setIsUploading(false);
       
       // More specific error messages
       let errorMessage = 'Failed to save your profile. Please try again.';
@@ -1084,6 +1117,24 @@ const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }) => {
                     <Text style={styles.modalButtonText}>Submit</Text>
                   </TouchableOpacity>
                 </View>
+              </View>
+            </View>
+          </Modal>
+        )}
+
+        {/* Loading Modal */}
+        {isUploading && (
+          <Modal
+            animationType="fade"
+            transparent={true}
+            visible={isUploading}
+          >
+            <View style={styles.modalOverlay}>
+              <View style={styles.loadingModalContent}>
+                <ActivityIndicator size="large" color="#FF6B6B" />
+                <Text style={styles.loadingText}>
+                  {data.photos.length > 0 ? 'Uploading photos...' : 'Setting up your profile...'}
+                </Text>
               </View>
             </View>
           </Modal>
@@ -2096,6 +2147,21 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '600',
+  },
+  loadingModalContent: {
+    backgroundColor: '#2D2D2D',
+    borderRadius: 16,
+    padding: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 200,
+  },
+  loadingText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+    marginTop: 16,
+    textAlign: 'center',
   },
 
 });

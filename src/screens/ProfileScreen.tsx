@@ -27,10 +27,9 @@ import { MatchingService } from '../services/matchingService';
 import { PhotoService } from '../services/photoService';
 import { DeviceAuthService } from '../services/deviceAuthService';
 
+const { width, height } = Dimensions.get('window');
 
 type ProfileScreenNavigationProp = BottomTabNavigationProp<MainTabParamList, 'Profile'>;
-
-const { width, height } = Dimensions.get('window');
 
 
 
@@ -46,8 +45,6 @@ const ProfileScreen: React.FC = () => {
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
   const [scrollPosition, setScrollPosition] = useState(0);
   const [isScrolling, setIsScrolling] = useState(false);
-  const [showProfileModal, setShowProfileModal] = useState(false);
-  const [modalPhotoIndex, setModalPhotoIndex] = useState(0);
   const scrollViewRef = React.useRef<ScrollView>(null);
   const infoHeightAnim = React.useRef(new Animated.Value(200)).current;
   
@@ -67,6 +64,30 @@ const ProfileScreen: React.FC = () => {
   const welcomeScaleAnim = useRef(new Animated.Value(0)).current;
   const welcomeOpacityAnim = useRef(new Animated.Value(0)).current;
 
+  // Prefetch images for instant loading with logging
+  const preloadImages = (photos: string[]) => {
+    console.log(`ProfileScreen: Prefetching ${photos.length} photos...`);
+    photos.forEach((photoUrl, index) => {
+      if (photoUrl) {
+        Image.prefetch(photoUrl)
+          .then(() => {
+            console.log(`ProfileScreen: Photo ${index + 1} cached successfully`);
+          })
+          .catch((error) => {
+            console.warn(`ProfileScreen: Failed to cache photo ${index + 1}:`, error);
+          });
+      }
+    });
+  };
+
+  // Preload all profile photos
+  useEffect(() => {
+    if (profileData.photos && profileData.photos.length > 0) {
+      console.log('ProfileScreen: Starting photo prefetch...');
+      preloadImages(profileData.photos);
+    }
+  }, [profileData.photos]);
+
   // Check for welcome modal on mount
   useEffect(() => {
     const checkWelcomeModal = async () => {
@@ -75,17 +96,17 @@ const ProfileScreen: React.FC = () => {
         await AsyncStorage.removeItem('show_welcome_modal');
         setTimeout(() => {
           setShowWelcomeModal(true);
-          // Animate in
+          // Animate in - faster for better UX
           Animated.parallel([
             Animated.spring(welcomeScaleAnim, {
               toValue: 1,
-              tension: 50,
-              friction: 7,
+              tension: 80,
+              friction: 8,
               useNativeDriver: true,
             }),
             Animated.timing(welcomeOpacityAnim, {
               toValue: 1,
-              duration: 300,
+              duration: 150,
               useNativeDriver: true,
             }),
           ]).start();
@@ -99,18 +120,19 @@ const ProfileScreen: React.FC = () => {
     Animated.parallel([
       Animated.timing(welcomeScaleAnim, {
         toValue: 0,
-        duration: 200,
+        duration: 100,
         useNativeDriver: true,
       }),
       Animated.timing(welcomeOpacityAnim, {
         toValue: 0,
-        duration: 200,
+        duration: 100,
         useNativeDriver: true,
       }),
     ]).start(() => {
       setShowWelcomeModal(false);
     });
   };
+
 
  // Shorter default height
 
@@ -391,12 +413,31 @@ const ProfileScreen: React.FC = () => {
                 disabled={true}
                 activeOpacity={1}
               >
-                {profileData.photos && profileData.photos.length > 0 && profileData.photos[safePhotoIndex] ? (
-                  <Image 
-                    source={{ uri: profileData.photos[safePhotoIndex] }} 
-                    style={styles.cardImage}
-
-                  />
+                {profileData.photos && profileData.photos.length > 0 ? (
+                  <View style={styles.cardImage}>
+                    {/* Render all images but only show current one - instant switching */}
+                    {profileData.photos.map((photoUri, index) => (
+                      <Image 
+                        key={index}
+                        source={{ uri: photoUri }} 
+                        style={[
+                          styles.cardImage,
+                          { 
+                            position: index === 0 ? 'relative' : 'absolute',
+                            top: 0,
+                            left: 0,
+                            right: 0,
+                            bottom: 0,
+                            opacity: index === safePhotoIndex ? 1 : 0,
+                          }
+                        ]}
+                        fadeDuration={0}
+                        resizeMode="cover"
+                        progressiveRenderingEnabled={true}
+                        loadingIndicatorSource={undefined}
+                      />
+                    ))}
+                  </View>
                 ) : (
                   <View style={styles.noPhotoContainer}>
                     <MaterialIcons name="person" size={80} color="#666" />
@@ -447,17 +488,68 @@ const ProfileScreen: React.FC = () => {
                   locations={[0, 0.3, 0.7, 1]}
                   style={styles.glassBackdrop}
                 />
-              <TouchableOpacity 
-                style={[styles.cardInfoScroll, styles.cardInfoContent]}
-                onPress={() => setShowProfileModal(true)}
-                activeOpacity={0.9}
+              <ScrollView 
+                style={styles.cardInfoScroll}
+                contentContainerStyle={styles.cardInfoContent}
+                showsVerticalScrollIndicator={false}
+                bounces={true}
               >
                 <View style={styles.nameAgeContainer}>
+                  {/* Festival chips - moved above name and age */}
+                  <View style={styles.festivalChipsContainer}>
+                    {(() => {
+                      const realFestivals = profileData.festival.split(',');
+                      const totalContainers = realFestivals.length < 3 ? 7 : 6;
+                      const fakeCount = Math.max(0, totalContainers - realFestivals.length);
+                      
+                      // FIXED RULE: When there are exactly 2 real festivals, put ALL fake containers + 1 extra
+                      // This ensures the 2 real containers appear together on the same row at the bottom
+                      if (realFestivals.length === 2 && fakeCount > 0) {
+                        return (
+                          <>
+                            {Array.from({ length: fakeCount + 1 }).map((_, index) => (
+                              <View key={`fake-${index}`} style={styles.fakeFestivalChip}>
+                                <Text style={styles.fakeFestivalChipText}>               </Text>
+                              </View>
+                            ))}
+                            {realFestivals.map((fest, index) => {
+                              const festivalName = fest.trim();
+                              return (
+                                <View key={index} style={styles.festivalChip}>
+                                  <Text style={styles.festivalChipText}>{festivalName}</Text>
+                                </View>
+                              );
+                            })}
+                          </>
+                        );
+                      }
+                      
+                      // Default behavior: fake containers first, then real ones
+                      return (
+                        <>
+                          {Array.from({ length: fakeCount }).map((_, index) => (
+                            <View key={`fake-${index}`} style={styles.fakeFestivalChip}>
+                              <Text style={styles.fakeFestivalChipText}>               </Text>
+                            </View>
+                          ))}
+                          {realFestivals.map((fest, index) => {
+                            const festivalName = fest.trim();
+                            return (
+                              <View key={index} style={styles.festivalChip}>
+                                <Text style={styles.festivalChipText}>{festivalName}</Text>
+                              </View>
+                            );
+                          })}
+                        </>
+                      );
+                    })()}
+                  </View>
+
                   <View style={styles.nameAgeRow}>
                     <Text style={styles.cardName}>
                       {profileData.name}
                     </Text>
-                    <Text style={styles.ageSeparator}>, </Text>
+                    <Text style={styles.ageSeparator}> </Text>
                     <Text style={styles.cardAge}>
                       {profileData.age}
                     </Text>
@@ -474,20 +566,8 @@ const ProfileScreen: React.FC = () => {
                     }
                     return null;
                   })()}
-
-                  <View style={styles.festivalContainer}>
-                    {profileData.festival.split(',').map((fest, index) => {
-                      const festivalName = fest.trim();
-                      
-                      return (
-                        <View key={index} style={styles.festivalRow}>
-                          <Text style={styles.festivalName}>{festivalName}</Text>
-                        </View>
-                      );
-                    })}
-                  </View>
                 </View>
-              </TouchableOpacity>
+              </ScrollView>
             </Animated.View>
           </View>
           
@@ -509,11 +589,7 @@ const ProfileScreen: React.FC = () => {
             onLongPress={() => {}} // Ignore long press
           />
         </View>
-        
-
       </View>
-
-
 
       {/* Edit Profile Button - overlaid on card */}
       <TouchableOpacity style={styles.editProfileButton} onPress={() => navigation.navigate('EditProfile' as any)}>
@@ -603,138 +679,6 @@ const ProfileScreen: React.FC = () => {
         </Modal>
       )}
 
-      {/* Profile Modal */}
-      <Modal
-        visible={showProfileModal}
-        animationType="slide"
-        transparent={true}
-        onRequestClose={() => setShowProfileModal(false)}
-      >
-        <View style={styles.profileModalOverlay}>
-          <View style={styles.profileModalContainer}>
-            <TouchableOpacity
-              style={styles.profileModalClose}
-              onPress={() => setShowProfileModal(false)}
-            >
-              <MaterialIcons name="close" size={28} color="#FFFFFF" />
-            </TouchableOpacity>
-
-            <ScrollView
-              style={styles.profileModalScroll}
-              contentContainerStyle={styles.profileModalContent}
-              showsVerticalScrollIndicator={true}
-            >
-              {/* Profile Photos */}
-              <View style={styles.profileModalPhotos}>
-                <ScrollView
-                  horizontal
-                  pagingEnabled
-                  showsHorizontalScrollIndicator={false}
-                  style={styles.profileModalPhotoScroll}
-                  ref={(ref) => {
-                    if (ref) {
-                      ref.scrollTo({ x: modalPhotoIndex * width * 0.9, animated: false });
-                    }
-                  }}
-                >
-                  {profileData.photos && profileData.photos.length > 0 ? (
-                    profileData.photos.map((photo, index) => (
-                      <TouchableOpacity
-                        key={index}
-                        style={styles.profileModalPhotoContainer}
-                        onPress={() => {
-                          const nextIndex = (index + 1) % profileData.photos.length;
-                          setModalPhotoIndex(nextIndex);
-                        }}
-                        activeOpacity={0.9}
-                      >
-                        <Image
-                          source={{ uri: photo }}
-                          style={styles.profileModalPhoto}
-                          resizeMode="cover"
-                        />
-                      </TouchableOpacity>
-                    ))
-                  ) : (
-                    <View style={styles.profileModalPhotoPlaceholder}>
-                      <MaterialIcons name="person" size={80} color="#666" />
-                      <Text style={styles.profileModalPhotoPlaceholderText}>No photos</Text>
-                    </View>
-                  )}
-                </ScrollView>
-              </View>
-
-              {/* Profile Info */}
-              <View style={styles.nameAgeContainer}>
-                <View style={styles.nameAgeRow}>
-                  <Text style={styles.cardName}>
-                    {profileData.name}
-                  </Text>
-                  <Text style={styles.ageSeparator}>, </Text>
-                  <Text style={styles.cardAge}>
-                    {profileData.age}
-                  </Text>
-                </View>
-
-                {(() => {
-                  const bioText = profileData.interests?.join(', ') || '';
-                  if (bioText) {
-                    return (
-                      <Text style={styles.bioSection}>
-                        -  {bioText}
-                      </Text>
-                    );
-                  }
-                  return null;
-                })()}
-
-                <View style={styles.festivalContainer}>
-                  {profileData.festival.split(',').map((fest, index) => {
-                    const festivalName = fest.trim();
-                    
-                    const ticketTypes = profileData.ticketType ? profileData.ticketType.split(',').reduce((acc, item) => {
-                      const match = item.match(/(.+?):\s*(.+)/);
-                      if (match) {
-                        acc[match[1].trim()] = match[2].trim();
-                      }
-                      return acc;
-                    }, {} as { [key: string]: string }) : {};
-                    
-                    const accommodations = profileData.accommodation ? profileData.accommodation.split(',').reduce((acc, item) => {
-                      const match = item.match(/(.+?):\s*(.+)/);
-                      if (match) {
-                        acc[match[1].trim()] = match[2].trim();
-                      }
-                      return acc;
-                    }, {} as { [key: string]: string }) : {};
-                    
-                    const ticketType = ticketTypes[festivalName];
-                    const accommodation = accommodations[festivalName];
-                    
-                    return (
-                      <View key={index} style={styles.festivalRow}>
-                        <Text style={styles.festivalName}>{festivalName}</Text>
-                        <View style={styles.festivalDetails}>
-                          {ticketType && (
-                            <Text style={styles.festivalDetailText}>
-                              🎫 {ticketType}
-                            </Text>
-                          )}
-                          {accommodation && (
-                            <Text style={styles.festivalDetailText}>
-                              🏠 {accommodation}
-                            </Text>
-                          )}
-                        </View>
-                      </View>
-                    );
-                  })}
-                </View>
-              </View>
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
 
       {/* Welcome Modal */}
       {showWelcomeModal && (
@@ -946,14 +890,92 @@ const styles = StyleSheet.create({
     textShadowRadius: 1,
   },
   festivalDetails: {
-    flexDirection: 'row',
-    gap: 10,
+    flexDirection: 'column',
+    gap: 3,
     marginTop: 2,
+  },
+  festivalDetailRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  festivalDetailIcon: {
+    fontSize: 14,
+  },
+  festivalDetailTextContent: {
+    fontSize: 14,
+    color: '#CCCCCC',
+    fontWeight: '500',
+    marginTop: 2,
+  },
+  festivalDetailTicketText: {
+    fontSize: 14,
+    color: '#CCCCCC',
+    fontWeight: '500',
+    marginTop: 1,
   },
   festivalDetailText: {
     fontSize: 14,
     color: '#CCCCCC',
     fontWeight: '500',
+    marginTop: 2,
+  },
+  festivalChipsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginBottom: 10,
+    gap: 8,
+  },
+  festivalChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FF6B6B',
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 16,
+    gap: 4,
+  },
+  festivalChipText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  fakeFestivalChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'transparent',
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 16,
+    gap: 4,
+  },
+  fakeFestivalChipText: {
+    color: 'transparent',
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  festivalDetailsContainer: {
+    flexDirection: 'column',
+    marginTop: 10,
+    gap: 12,
+  },
+  festivalDetailItem: {
+    flexDirection: 'column',
+    alignItems: 'flex-start',
+    marginBottom: 8,
+  },
+  festivalDetailChip: {
+    backgroundColor: '#FF6B6B',
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 16,
+    marginBottom: 4,
+  },
+  festivalDetailChipText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '600',
+    textTransform: 'uppercase',
   },
   festivalContainer: {
     backgroundColor: 'rgba(255, 107, 107, 0.15)',
@@ -1508,69 +1530,6 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 18,
     fontWeight: 'bold',
-  },
-  profileModalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.9)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  profileModalContainer: {
-    width: width * 0.9,
-    height: height * 0.8,
-    backgroundColor: '#2D2D2D',
-    borderRadius: 20,
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 8,
-  },
-  profileModalClose: {
-    position: 'absolute',
-    top: 15,
-    right: 15,
-    zIndex: 10,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    borderRadius: 20,
-    padding: 5,
-  },
-  profileModalScroll: {
-    flex: 1,
-  },
-  profileModalContent: {
-    paddingBottom: 25,
-    paddingLeft: 27,
-    paddingRight: 20,
-  },
-  profileModalPhotos: {
-    height: height * 0.4,
-    marginBottom: 20,
-    alignItems: 'center',
-  },
-  profileModalPhotoScroll: {
-    flex: 1,
-  },
-  profileModalPhotoContainer: {
-    width: width * 0.9,
-    height: height * 0.4,
-  },
-  profileModalPhoto: {
-    width: width * 0.9,
-    height: height * 0.4,
-  },
-  profileModalPhotoPlaceholder: {
-    width: width * 0.9,
-    height: height * 0.4,
-    backgroundColor: '#1A1A1A',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  profileModalPhotoPlaceholderText: {
-    color: '#666',
-    fontSize: 16,
-    marginTop: 10,
   },
 });
   

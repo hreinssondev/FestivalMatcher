@@ -77,6 +77,24 @@ const ChatScreen: React.FC = () => {
     }
   }, [chatUser]);
 
+  // Prefetch images for instant loading
+  const preloadImages = (photos: string[]) => {
+    photos.forEach(photoUrl => {
+      if (photoUrl) {
+        Image.prefetch(photoUrl).catch(() => {
+          // Silently handle prefetch errors
+        });
+      }
+    });
+  };
+
+  // Preload all chat user images
+  useEffect(() => {
+    if (chatUser && chatUser.photos && chatUser.photos.length > 0) {
+      preloadImages(chatUser.photos);
+    }
+  }, [chatUser]);
+
   const { matchId, matchName, matchPhoto, openKeyboard } = route.params;
 
   // Load chat data from Supabase
@@ -444,11 +462,31 @@ const ChatScreen: React.FC = () => {
                   disabled={true}
                   activeOpacity={1}
                 >
-                  {chatUser.photos && chatUser.photos.length > 0 && chatUser.photos[currentPhotoIndex] ? (
-                    <Image 
-                      source={{ uri: chatUser.photos[currentPhotoIndex] }} 
-                      style={styles.cardImage}
-                    />
+                  {chatUser.photos && chatUser.photos.length > 0 ? (
+                    <View style={styles.cardImage}>
+                      {/* Render all images but only show current one - instant switching */}
+                      {chatUser.photos.map((photoUri, index) => (
+                        <Image 
+                          key={index}
+                          source={{ uri: photoUri }} 
+                          style={[
+                            styles.cardImage,
+                            { 
+                              position: index === 0 ? 'relative' : 'absolute',
+                              top: 0,
+                              left: 0,
+                              right: 0,
+                              bottom: 0,
+                              opacity: index === currentPhotoIndex ? 1 : 0,
+                            }
+                          ]}
+                          fadeDuration={0}
+                          resizeMode="cover"
+                          progressiveRenderingEnabled={true}
+                          loadingIndicatorSource={undefined}
+                        />
+                      ))}
+                    </View>
                   ) : (
                     <View style={styles.noPhotoContainer}>
                       <MaterialIcons name="person" size={80} color="#666" />
@@ -461,17 +499,17 @@ const ChatScreen: React.FC = () => {
               {/* Photo navigation tap areas - left and right only */}
               <TouchableOpacity 
                 style={styles.leftTapArea} 
-                onPress={previousPhoto}
+                onPressIn={previousPhoto}
                 activeOpacity={0.8}
-                delayPressIn={50}
+                delayPressIn={0}
                 delayLongPress={200}
                 onLongPress={() => {}} // Ignore long press
               />
               <TouchableOpacity 
                 style={styles.rightTapArea} 
-                onPress={nextPhoto}
+                onPressIn={nextPhoto}
                 activeOpacity={0.8}
-                delayPressIn={50}
+                delayPressIn={0}
                 delayLongPress={200}
                 onLongPress={() => {}} // Ignore long press
               />
@@ -479,17 +517,17 @@ const ChatScreen: React.FC = () => {
               {/* Bottom tap areas for photo navigation */}
               <TouchableOpacity 
                 style={styles.bottomLeftTapArea} 
-                onPress={previousPhoto}
+                onPressIn={previousPhoto}
                 activeOpacity={0.8}
-                delayPressIn={50}
+                delayPressIn={0}
                 delayLongPress={200}
                 onLongPress={() => {}} // Ignore long press
               />
               <TouchableOpacity 
                 style={styles.bottomRightTapArea} 
-                onPress={nextPhoto}
+                onPressIn={nextPhoto}
                 activeOpacity={0.8}
-                delayPressIn={50}
+                delayPressIn={0}
                 delayLongPress={200}
                 onLongPress={() => {}} // Ignore long press
               />
@@ -534,7 +572,7 @@ const ChatScreen: React.FC = () => {
                         <Text style={styles.cardName}>
                           {chatUser.name}
                         </Text>
-                        <Text style={styles.ageSeparator}>, </Text>
+                        <Text style={styles.ageSeparator}> </Text>
                         <Text style={styles.cardAge}>
                           {chatUser.age}
                         </Text>
@@ -552,7 +590,8 @@ const ChatScreen: React.FC = () => {
                         return null;
                       })()}
 
-                      <View style={styles.festivalContainer}>
+                      {/* Festival details with ticket and accommodation info */}
+                      <View style={styles.festivalDetailsContainer}>
                         {chatUser.festival.split(',').map((fest, index) => {
                           const festivalName = fest.trim();
                           
@@ -578,18 +617,22 @@ const ChatScreen: React.FC = () => {
                           const accommodation = accommodations[festivalName];
                           
                           return (
-                            <View key={index} style={styles.festivalRow}>
-                              <Text style={styles.festivalName}>{festivalName}</Text>
+                            <View key={index} style={styles.festivalDetailItem}>
+                              <View style={styles.festivalDetailChip}>
+                                <Text style={styles.festivalDetailChipText}>{festivalName}</Text>
+                              </View>
                               <View style={styles.festivalDetails}>
                                 {ticketType && (
-                                  <Text style={styles.festivalDetailText}>
-                                    🎫 {ticketType}
-                                  </Text>
+                                  <View style={styles.festivalDetailRow}>
+                                    <Text style={styles.festivalDetailIcon}>🎫</Text>
+                                    <Text style={styles.festivalDetailTextContent}>{ticketType}</Text>
+                                  </View>
                                 )}
                                 {accommodation && (
-                                  <Text style={styles.festivalDetailText}>
-                                    🏠 {accommodation}
-                                  </Text>
+                                  <View style={styles.festivalDetailRow}>
+                                    <Text style={styles.festivalDetailIcon}>🏠</Text>
+                                    <Text style={styles.festivalDetailTextContent}>{accommodation}</Text>
+                                  </View>
                                 )}
                               </View>
                             </View>
@@ -920,6 +963,49 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     marginBottom: 8,
   },
+  festivalChipsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginBottom: 10,
+    gap: 8,
+  },
+  festivalChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FF6B6B',
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 16,
+    gap: 4,
+  },
+  festivalChipText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  festivalDetailsContainer: {
+    flexDirection: 'column',
+    marginTop: 10,
+    gap: 12,
+  },
+  festivalDetailItem: {
+    flexDirection: 'column',
+    alignItems: 'flex-start',
+    marginBottom: 8,
+  },
+  festivalDetailChip: {
+    backgroundColor: '#FF6B6B',
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 16,
+    marginBottom: 4,
+  },
+  festivalDetailChipText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+  },
   festivalContainer: {
     backgroundColor: 'rgba(255, 107, 107, 0.2)',
     borderRadius: 15,
@@ -938,14 +1024,35 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   festivalDetails: {
-    flexDirection: 'row',
-    gap: 10,
+    flexDirection: 'column',
+    gap: 3,
     marginTop: 2,
+  },
+  festivalDetailRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  festivalDetailIcon: {
+    fontSize: 12,
+  },
+  festivalDetailTextContent: {
+    fontSize: 12,
+    color: '#CCCCCC',
+    fontWeight: '500',
+    marginTop: 2,
+  },
+  festivalDetailTicketText: {
+    fontSize: 12,
+    color: '#CCCCCC',
+    fontWeight: '500',
+    marginTop: 1,
   },
   festivalDetailText: {
     fontSize: 12,
     color: '#CCCCCC',
     fontWeight: '500',
+    marginTop: 2,
   },
   profileCardBio: {
     fontSize: 16,

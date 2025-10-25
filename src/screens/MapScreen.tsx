@@ -90,6 +90,24 @@ const MapScreen: React.FC = () => {
     { label: '1h', value: 3600 }
   ];
 
+  // Prefetch images for instant loading
+  const preloadImages = (photos: string[]) => {
+    photos.forEach(photoUrl => {
+      if (photoUrl) {
+        Image.prefetch(photoUrl).catch(() => {
+          // Silently handle prefetch errors
+        });
+      }
+    });
+  };
+
+  // Preload selected user images
+  useEffect(() => {
+    if (selectedUser && selectedUser.photos && selectedUser.photos.length > 0) {
+      preloadImages(selectedUser.photos);
+    }
+  }, [selectedUser]);
+
   // Load matches and direct messages from Supabase (same as MatchesScreen)
   useEffect(() => {
     const loadData = async () => {
@@ -104,6 +122,13 @@ const MapScreen: React.FC = () => {
         }
         setMatches(matchesResult.matches);
         
+        // Preload all match photos for instant display
+        matchesResult.matches.forEach(match => {
+          if (match.user.photos && match.user.photos.length > 0) {
+            preloadImages(match.user.photos);
+          }
+        });
+        
         // Load direct messages (users who sent messages but aren't matched)
         const dmResult = await MatchingService.getDirectMessages(deviceUserId);
         if (dmResult.error) {
@@ -111,6 +136,12 @@ const MapScreen: React.FC = () => {
           setDirectMessages([]);
         } else {
           setDirectMessages(dmResult.messages);
+          // Preload DM photos too
+          dmResult.messages.forEach(dm => {
+            if (dm.user.photos && dm.user.photos.length > 0) {
+              preloadImages(dm.user.photos);
+            }
+          });
         }
       } catch (error) {
         console.error('Error loading data:', error);
@@ -594,11 +625,31 @@ const MapScreen: React.FC = () => {
               onPressOut={handlePressOut}
               activeOpacity={0.7}
             >
-              {selectedUser.photos && selectedUser.photos.length > 0 && selectedUser.photos[currentPhotoIndex] ? (
-                <Image 
-                  source={{ uri: selectedUser.photos[currentPhotoIndex] }} 
-                  style={styles.profileImage} 
-                />
+              {selectedUser.photos && selectedUser.photos.length > 0 ? (
+                <View style={styles.profileImage}>
+                  {/* Render all images but only show current one - instant switching */}
+                  {selectedUser.photos.map((photoUri, index) => (
+                    <Image 
+                      key={index}
+                      source={{ uri: photoUri }} 
+                      style={[
+                        styles.profileImage,
+                        { 
+                          position: index === 0 ? 'relative' : 'absolute',
+                          top: 0,
+                          left: 0,
+                          right: 0,
+                          bottom: 0,
+                          opacity: index === currentPhotoIndex ? 1 : 0,
+                        }
+                      ]}
+                      fadeDuration={0}
+                      resizeMode="cover"
+                      progressiveRenderingEnabled={true}
+                      loadingIndicatorSource={undefined}
+                    />
+                  ))}
+                </View>
               ) : (
                 <View style={styles.noPhotoContainer}>
                   <MaterialIcons name="person" size={80} color="#666" />
@@ -610,13 +661,15 @@ const MapScreen: React.FC = () => {
             {/* Photo navigation tap areas */}
             <TouchableOpacity 
               style={styles.leftTapArea} 
-              onPress={previousPhoto}
+              onPressIn={previousPhoto}
               activeOpacity={0.8}
+              delayPressIn={0}
             />
             <TouchableOpacity 
               style={styles.rightTapArea} 
-              onPress={nextPhoto}
+              onPressIn={nextPhoto}
               activeOpacity={0.8}
+              delayPressIn={0}
             />
             
             {/* Photo indicator dots */}
@@ -653,7 +706,7 @@ const MapScreen: React.FC = () => {
                   contentContainerStyle={styles.profileInfoContent}
                 >
                   <Text style={styles.profileName}>
-                    {selectedUser.name}, {selectedUser.age}
+                    {selectedUser.name} {selectedUser.age}
                   </Text>
 
                   {(() => {
@@ -668,7 +721,8 @@ const MapScreen: React.FC = () => {
                     return null;
                   })()}
 
-                  <View style={styles.festivalContainer}>
+                  {/* Festival details with ticket and accommodation info */}
+                  <View style={styles.festivalDetailsContainer}>
                     {selectedUser.festival.split(',').map((fest, index) => {
                       const festivalName = fest.trim();
                       
@@ -694,18 +748,22 @@ const MapScreen: React.FC = () => {
                       const accommodation = accommodations[festivalName];
                       
                       return (
-                        <View key={index} style={styles.festivalRow}>
-                          <Text style={styles.festivalName}>{festivalName}</Text>
+                        <View key={index} style={styles.festivalDetailItem}>
+                          <View style={styles.festivalDetailChip}>
+                            <Text style={styles.festivalDetailChipText}>{festivalName}</Text>
+                          </View>
                           <View style={styles.festivalDetails}>
                             {ticketType && (
-                              <Text style={styles.festivalDetailText}>
-                                🎫 {ticketType}
-                              </Text>
+                              <View style={styles.festivalDetailRow}>
+                                <Text style={styles.festivalDetailIcon}>🎫</Text>
+                                <Text style={styles.festivalDetailTicketText}>{ticketType}</Text>
+                              </View>
                             )}
                             {accommodation && (
-                              <Text style={styles.festivalDetailText}>
-                                🏠 {accommodation}
-                              </Text>
+                              <View style={styles.festivalDetailRow}>
+                                <Text style={styles.festivalDetailIcon}>🏠</Text>
+                                <Text style={styles.festivalDetailTextContent}>{accommodation}</Text>
+                              </View>
                             )}
                           </View>
                         </View>
@@ -1328,6 +1386,49 @@ const styles = StyleSheet.create({
     color: '#fff',
     marginBottom: 5,
   },
+  festivalChipsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginBottom: 10,
+    gap: 8,
+  },
+  festivalChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FF6B6B',
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 16,
+    gap: 4,
+  },
+  festivalChipText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  festivalDetailsContainer: {
+    flexDirection: 'column',
+    marginTop: 10,
+    gap: 12,
+  },
+  festivalDetailItem: {
+    flexDirection: 'column',
+    alignItems: 'flex-start',
+    marginBottom: 8,
+  },
+  festivalDetailChip: {
+    backgroundColor: '#FF6B6B',
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 16,
+    marginBottom: 4,
+  },
+  festivalDetailChipText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+  },
   festivalContainer: {
     backgroundColor: 'rgba(255, 107, 107, 0.15)',
     borderRadius: 12,
@@ -1372,14 +1473,35 @@ const styles = StyleSheet.create({
     textShadowRadius: 1,
   },
   festivalDetails: {
-    flexDirection: 'row',
-    gap: 10,
+    flexDirection: 'column',
+    gap: 3,
     marginTop: 2,
+  },
+  festivalDetailRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  festivalDetailIcon: {
+    fontSize: 14,
+  },
+  festivalDetailTextContent: {
+    fontSize: 14,
+    color: '#CCCCCC',
+    fontWeight: '500',
+    marginTop: 2,
+  },
+  festivalDetailTicketText: {
+    fontSize: 14,
+    color: '#CCCCCC',
+    fontWeight: '500',
+    marginTop: 1,
   },
   festivalDetailText: {
     fontSize: 14,
     color: '#CCCCCC',
     fontWeight: '500',
+    marginTop: 2,
   },
   profileBio: {
     fontSize: 14,

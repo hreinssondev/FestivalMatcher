@@ -52,7 +52,7 @@ const SwipeScreen = () => {
   const [floatingBarTextIndex, setFloatingBarTextIndex] = useState(0); // Start with distance
   const floatingBarTexts = [
     { icon: "location-on" as const, text: `${currentUser?.distance || 0} km away` },
-    { icon: "location-on" as const, text: `Show on Map ?` }
+    { icon: "location-on" as const, text: `Tap to Show on Map` }
   ];
 
   const handleFloatingBarPress = () => {
@@ -74,6 +74,7 @@ const SwipeScreen = () => {
 
 
   const preloadImages = (photos: string[]) => {
+    // Aggressively prefetch all photos
     photos.forEach(photoUrl => {
       if (photoUrl) {
         Image.prefetch(photoUrl).catch(() => {
@@ -82,6 +83,13 @@ const SwipeScreen = () => {
       }
     });
   };
+
+  // Preload all images of current user when they change
+  useEffect(() => {
+    if (currentUser && currentUser.photos && currentUser.photos.length > 0) {
+      preloadImages(currentUser.photos);
+    }
+  }, [currentUser]);
 
   const loadPotentialMatches = async () => {
     try {
@@ -99,8 +107,8 @@ const SwipeScreen = () => {
       
       setPotentialMatches(filteredUsers);
       
-      // Preload images for the first few users
-      filteredUsers.slice(0, 3).forEach(user => {
+      // Aggressively preload images for the first 5 users for instant display
+      filteredUsers.slice(0, 5).forEach(user => {
         if (user.photos && user.photos.length > 0) {
           preloadImages(user.photos);
         }
@@ -255,10 +263,15 @@ const SwipeScreen = () => {
       setCurrentUserIndex(currentUserIndex + 1);
       setCurrentPhotoIndex(0);
       
-      // Preload images for the next user
+      // Preload images for the next 2 users ahead
       const nextUser = potentialMatches[currentUserIndex + 1];
+      const nextNextUser = potentialMatches[currentUserIndex + 2];
+      
       if (nextUser && nextUser.photos && nextUser.photos.length > 0) {
         preloadImages(nextUser.photos);
+      }
+      if (nextNextUser && nextNextUser.photos && nextNextUser.photos.length > 0) {
+        preloadImages(nextNextUser.photos);
       }
     } else {
       // Force the component to re-render with no more profiles state
@@ -501,15 +514,31 @@ const SwipeScreen = () => {
                 disabled={true}
                 activeOpacity={1}
               >
-                {currentUser.photos && currentUser.photos.length > 0 && currentUser.photos[safePhotoIndex] ? (
-                  <Image 
-                    source={{ uri: currentUser.photos[safePhotoIndex] }} 
-                    style={styles.cardImage}
-                    resizeMode="cover"
-                    loadingIndicatorSource={null}
-                    progressiveRenderingEnabled={true}
-                    fadeDuration={0}
-                  />
+                {currentUser.photos && currentUser.photos.length > 0 ? (
+                  <View style={styles.cardImage}>
+                    {/* Render all images but only show current one - instant switching */}
+                    {currentUser.photos.map((photoUri, index) => (
+                      <Image 
+                        key={index}
+                        source={{ uri: photoUri }} 
+                        style={[
+                          styles.cardImage,
+                          { 
+                            position: index === 0 ? 'relative' : 'absolute',
+                            top: 0,
+                            left: 0,
+                            right: 0,
+                            bottom: 0,
+                            opacity: index === safePhotoIndex ? 1 : 0,
+                          }
+                        ]}
+                        resizeMode="cover"
+                        loadingIndicatorSource={undefined}
+                        progressiveRenderingEnabled={true}
+                        fadeDuration={0}
+                      />
+                    ))}
+                  </View>
                 ) : (
                   <View style={styles.noPhotoContainer}>
                     <MaterialIcons name="person" size={80} color="#666" />
@@ -545,12 +574,7 @@ const SwipeScreen = () => {
           <View
             style={[styles.cardOverlay, { zIndex: 9999 }]} // Very high z-index to stay in front
           >
-            {/* Glassmorphism backdrop with fade */}
-            <LinearGradient
-              colors={['transparent', 'rgba(0, 0, 0, 0.15)', 'rgba(0, 0, 0, 0.4)', 'rgba(0, 0, 0, 0.6)']}
-              locations={[0, 0.3, 0.7, 1]}
-              style={styles.glassBackdrop}
-            />
+
             <Animated.View 
               style={[
                 styles.cardInfo,
@@ -558,17 +582,74 @@ const SwipeScreen = () => {
                 { zIndex: 100000 } // Higher z-index to ensure it's above tap areas
               ]}
             >
-              <TouchableOpacity 
-                style={[styles.cardInfoScroll, styles.cardInfoContent]}
-                onPress={() => setShowProfileModal(true)}
-                activeOpacity={0.9}
+                              {/* Glassmorphism backdrop with fade */}
+                <LinearGradient
+                  colors={['transparent', 'rgba(0, 0, 0, 0.15)', 'rgba(0, 0, 0, 0.4)', 'rgba(0, 0, 0, 0.6)']}
+                  locations={[0, 0.3, 0.7, 1]}
+                  style={styles.glassBackdrop}
+                />
+              <ScrollView 
+                style={styles.cardInfoScroll}
+                contentContainerStyle={styles.cardInfoContent}
+                showsVerticalScrollIndicator={false}
+                bounces={true}
               >
                 <View style={styles.nameAgeContainer}>
+                  {/* Festival chips - moved above name and age */}
+                  <View style={styles.festivalChipsContainer}>
+                    {(() => {
+                      const realFestivals = currentUser.festival.split(',');
+                      const totalContainers = realFestivals.length < 3 ? 7 : 6;
+                      const fakeCount = Math.max(0, totalContainers - realFestivals.length);
+                      
+                      // FIXED RULE: When there are exactly 2 real festivals, put ALL fake containers + 1 extra
+                      // This ensures the 2 real containers appear together on the same row at the bottom
+                      if (realFestivals.length === 2 && fakeCount > 0) {
+                        return (
+                          <>
+                            {Array.from({ length: fakeCount + 1 }).map((_, index) => (
+                              <View key={`fake-${index}`} style={styles.fakeFestivalChip}>
+                                <Text style={styles.fakeFestivalChipText}>               </Text>
+                              </View>
+                            ))}
+                            {realFestivals.map((fest, index) => {
+                              const festivalName = fest.trim();
+                              return (
+                                <View key={index} style={styles.festivalChip}>
+                                  <Text style={styles.festivalChipText}>{festivalName}</Text>
+                                </View>
+                              );
+                            })}
+                          </>
+                        );
+                      }
+                      
+                      // Default behavior: fake containers first, then real ones
+                      return (
+                        <>
+                          {Array.from({ length: fakeCount }).map((_, index) => (
+                            <View key={`fake-${index}`} style={styles.fakeFestivalChip}>
+                              <Text style={styles.fakeFestivalChipText}>               </Text>
+                            </View>
+                          ))}
+                          {realFestivals.map((fest, index) => {
+                            const festivalName = fest.trim();
+                            return (
+                              <View key={index} style={styles.festivalChip}>
+                                <Text style={styles.festivalChipText}>{festivalName}</Text>
+                              </View>
+                            );
+                          })}
+                        </>
+                      );
+                    })()}
+                  </View>
+
                   <View style={styles.nameAgeRow}>
                     <Text style={styles.cardName}>
                       {currentUser.name}
                     </Text>
-                    <Text style={styles.ageSeparator}>, </Text>
+                    <Text style={styles.ageSeparator}> </Text>
                     <Text style={styles.cardAge}>
                       {currentUser.age}
                     </Text>
@@ -579,26 +660,14 @@ const SwipeScreen = () => {
                     if (bioText) {
                       return (
                         <Text style={styles.bioSection}>
-                          {" "}{bioText}
+                          -  {bioText}
                         </Text>
                       );
                     }
                     return null;
                   })()}
-
-                  <View style={styles.festivalContainer}>
-                    {currentUser.festival.split(',').map((fest, index) => {
-                      const festivalName = fest.trim();
-                      
-                      return (
-                        <View key={index} style={styles.festivalRow}>
-                          <Text style={styles.festivalName}>{festivalName}</Text>
-                        </View>
-                      );
-                    })}
-                  </View>
                 </View>
-              </TouchableOpacity>
+              </ScrollView>
             </Animated.View>
           </View>
           
@@ -717,7 +786,7 @@ const SwipeScreen = () => {
                     <Text style={styles.cardName}>
                       {currentUser.name}
                     </Text>
-                    <Text style={styles.ageSeparator}>, </Text>
+                      <Text style={styles.ageSeparator}> </Text>
                     <Text style={styles.cardAge}>
                       {currentUser.age}
                     </Text>
@@ -735,7 +804,8 @@ const SwipeScreen = () => {
                     return null;
                   })()}
 
-                  <View style={styles.festivalContainer}>
+                  {/* Festival details with ticket and accommodation info */}
+                  <View style={styles.festivalDetailsContainer}>
                     {currentUser.festival.split(',').map((fest, index) => {
                       const festivalName = fest.trim();
                       
@@ -759,18 +829,22 @@ const SwipeScreen = () => {
                       const accommodation = accommodations[festivalName];
                       
                       return (
-                        <View key={index} style={styles.festivalRow}>
-                          <Text style={styles.festivalName}>{festivalName}</Text>
+                        <View key={index} style={styles.festivalDetailItem}>
+                          <View style={styles.festivalDetailChip}>
+                            <Text style={styles.festivalDetailChipText}>{festivalName}</Text>
+                          </View>
                           <View style={styles.festivalDetails}>
                             {ticketType && (
-                              <Text style={styles.festivalDetailText}>
-                                🎫 {ticketType}
-                              </Text>
+                              <View style={styles.festivalDetailRow}>
+                                <Text style={styles.festivalDetailIcon}>🎫</Text>
+                                <Text style={styles.festivalDetailTicketText}>{ticketType}</Text>
+                              </View>
                             )}
                             {accommodation && (
-                              <Text style={styles.festivalDetailText}>
-                                🏠 {accommodation}
-                              </Text>
+                              <View style={styles.festivalDetailRow}>
+                                <Text style={styles.festivalDetailIcon}>🏠</Text>
+                                <Text style={styles.festivalDetailTextContent}>{accommodation}</Text>
+                              </View>
                             )}
                           </View>
                         </View>
@@ -949,14 +1023,92 @@ const styles = StyleSheet.create({
     textShadowRadius: 1,
   },
   festivalDetails: {
-    flexDirection: 'row',
-    gap: 10,
+    flexDirection: 'column',
+    gap: 3,
     marginTop: 2,
+  },
+  festivalDetailRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  festivalDetailIcon: {
+    fontSize: 14,
+  },
+  festivalDetailTextContent: {
+    fontSize: 14,
+    color: '#CCCCCC',
+    fontWeight: '500',
+    marginTop: 2,
+  },
+  festivalDetailTicketText: {
+    fontSize: 14,
+    color: '#CCCCCC',
+    fontWeight: '500',
+    marginTop: 1,
   },
   festivalDetailText: {
     fontSize: 14,
     color: '#CCCCCC',
     fontWeight: '500',
+    marginTop: 2,
+  },
+  festivalChipsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginBottom: 10,
+    gap: 8,
+  },
+  festivalChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FF6B6B',
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 16,
+    gap: 4,
+  },
+  festivalChipText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  fakeFestivalChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'transparent',
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 16,
+    gap: 4,
+  },
+  fakeFestivalChipText: {
+    color: 'transparent',
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  festivalDetailsContainer: {
+    flexDirection: 'column',
+    marginTop: 10,
+    gap: 12,
+  },
+  festivalDetailItem: {
+    flexDirection: 'column',
+    alignItems: 'flex-start',
+    marginBottom: 8,
+  },
+  festivalDetailChip: {
+    backgroundColor: '#FF6B6B',
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 16,
+    marginBottom: 4,
+  },
+  festivalDetailChipText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '600',
+    textTransform: 'uppercase',
   },
   festivalContainer: {
     backgroundColor: 'rgba(255, 107, 107, 0.15)',
