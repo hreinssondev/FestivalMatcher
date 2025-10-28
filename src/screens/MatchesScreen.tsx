@@ -22,6 +22,8 @@ import { formatTime } from '../utils/helpers';
 import { useProfile } from '../context/ProfileContext';
 import { MatchingService } from '../services/matchingService';
 import { DeviceAuthService } from '../services/deviceAuthService';
+import MatchNotification from '../components/MatchNotification';
+import { useFocusEffect } from '@react-navigation/native';
 
 
 type MatchesScreenNavigationProp = StackNavigationProp<RootStackParamList, 'Main'>;
@@ -45,6 +47,9 @@ const MatchesScreen: React.FC = () => {
   const [showDeletePopup, setShowDeletePopup] = useState(false);
   const [deleteTargetMatch, setDeleteTargetMatch] = useState<Match | null>(null);
   const [deletePopupPosition, setDeletePopupPosition] = useState({ x: 0, y: 0 });
+  const [showMatchNotification, setShowMatchNotification] = useState(false);
+  const [newMatchData, setNewMatchData] = useState<Match | null>(null);
+  const knownMatchIdsRef = useRef<Set<string>>(new Set());
 
   // Floating bar texts for profile overlay
   const floatingBarTexts = [
@@ -90,64 +95,124 @@ const MatchesScreen: React.FC = () => {
   
 
 
+  // Create placeholder match for UI consistency
+  const placeholderMatch: Match = {
+    id: '__placeholder__',
+    user: {
+      id: '__placeholder__',
+      name: '',
+      age: 0,
+      gender: 'Other',
+      festival: '',
+      ticketType: '',
+      accommodationType: '',
+      photos: [],
+      interests: [],
+      lastSeen: new Date().toISOString(),
+    },
+    matchedAt: new Date(),
+  };
+
   // Combine matches and direct messages based on toggle value
   const filteredMatches = (() => {
+    let result: Match[];
     switch (toggleValue) {
       case 0: // All
-        return [...matches, ...directMessages];
+        result = [...matches, ...directMessages];
+        break;
       case 1: // DM - only show direct messages
-        return directMessages;
+        result = directMessages;
+        break;
       case 2: // Matches - only show actual matches
-        return matches;
+        result = matches;
+        break;
       default:
-        return [...matches, ...directMessages];
+        result = [...matches, ...directMessages];
     }
+    // Always include invisible placeholder if no matches
+    return result.length === 0 ? [placeholderMatch] : result;
   })();
 
   // Load matches and direct messages from Supabase
-  useEffect(() => {
-    const loadData = async () => {
-      try {
-        setIsLoading(true);
-        const deviceUserId = await DeviceAuthService.getDeviceUserId();
-        
-        // Load matches
-        const matchesResult = await MatchingService.getUserMatches(deviceUserId);
-        if (matchesResult.error) {
-          throw matchesResult.error;
+  const loadData = React.useCallback(async (showNotification = true) => {
+    try {
+      setIsLoading(true);
+      const deviceUserId = await DeviceAuthService.getDeviceUserId();
+      
+      // Load matches
+      const matchesResult = await MatchingService.getUserMatches(deviceUserId);
+      if (matchesResult.error) {
+        throw matchesResult.error;
+      }
+      
+      // Check for new matches
+      const currentMatchIds = new Set(matchesResult.matches.map(m => m.id));
+      const previousMatchIds = knownMatchIdsRef.current;
+      
+      // Find new matches (only if we're showing notifications)
+      if (showNotification) {
+        const newMatches = matchesResult.matches.filter(m => !previousMatchIds.has(m.id));
+        if (newMatches.length > 0 && previousMatchIds.size > 0) {
+          // Only show notification if we had previous matches (not initial load)
+          const newestMatch = newMatches[0]; // Get the first new match
+          setNewMatchData(newestMatch as unknown as Match);
+          setShowMatchNotification(true);
         }
-        setMatches(matchesResult.matches);
-        
-        // Preload all match photos for instant display
-        matchesResult.matches.forEach(match => {
-          if (match.user.photos && match.user.photos.length > 0) {
-            preloadImages(match.user.photos);
+      }
+      
+      setMatches(matchesResult.matches as Match[]);
+      knownMatchIdsRef.current = currentMatchIds;
+      
+      // Preload all match photos for instant display
+      matchesResult.matches.forEach(match => {
+        if (match.user.photos && match.user.photos.length > 0) {
+          preloadImages(match.user.photos);
+        }
+      });
+      
+      // Load direct messages (users who sent messages but aren't matched)
+      const dmResult = await MatchingService.getDirectMessages(deviceUserId);
+      if (dmResult.error) {
+        console.error('Error loading direct messages:', dmResult.error);
+        setDirectMessages([]);
+        } else {
+          setDirectMessages(dmResult.messages as Match[]);
+          // Preload DM photos too
+        dmResult.messages.forEach(dm => {
+          if (dm.user.photos && dm.user.photos.length > 0) {
+            preloadImages(dm.user.photos);
           }
         });
-        
-        // Load direct messages (users who sent messages but aren't matched)
-        const dmResult = await MatchingService.getDirectMessages(deviceUserId);
-        if (dmResult.error) {
-          console.error('Error loading direct messages:', dmResult.error);
-          setDirectMessages([]);
-        } else {
-          setDirectMessages(dmResult.messages);
-          // Preload DM photos too
-          dmResult.messages.forEach(dm => {
-            if (dm.user.photos && dm.user.photos.length > 0) {
-              preloadImages(dm.user.photos);
-            }
-          });
-        }
-      } catch (error) {
-        console.error('Error loading data:', error);
-      } finally {
-        setIsLoading(false);
+      }
+    } catch (error) {
+      console.error('Error loading data:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  // Initial load and setup polling
+  useEffect(() => {
+    loadData();
+
+    // Poll every 10 seconds for new matches
+    const pollInterval = setInterval(() => {
+      loadData();
+    }, 10000);
+
+    return () => {
+      if (pollInterval) {
+        clearInterval(pollInterval);
       }
     };
-
-    loadData();
   }, []);
+
+  // Refresh when screen comes into focus
+  useFocusEffect(
+    React.useCallback(() => {
+      loadData();
+    }, [loadData])
+  );
 
   const handleMatchPress = (match: Match) => {
     // Navigate to chat (same for both regular and direct messages)
@@ -212,7 +277,6 @@ const MatchesScreen: React.FC = () => {
   };
 
   const handleRemoveConnection = async (match: Match) => {
-    console.log('Long press detected! handleRemoveConnection called for MatchesScreen');
     setDeleteTargetMatch(match);
     setShowDeletePopup(true);
   };
@@ -257,16 +321,13 @@ const MatchesScreen: React.FC = () => {
   };
 
   const handlePressIn = (match: Match) => {
-    console.log('MatchesScreen: Press in detected');
     const timer = setTimeout(() => {
-      console.log('MatchesScreen: Long press timer triggered!');
       handleRemoveConnection(match);
     }, 500);
     setLongPressTimer(timer);
   };
 
   const handlePressOut = () => {
-    console.log('MatchesScreen: Press out detected');
     if (longPressTimer) {
       clearTimeout(longPressTimer);
       setLongPressTimer(null);
@@ -295,47 +356,72 @@ const MatchesScreen: React.FC = () => {
     }
   };
 
-  const renderMatch = ({ item }: { item: Match }) => (
-    <TouchableOpacity
-      style={styles.matchItem}
-      onPress={() => handleMatchPress(item)}
-      onPressIn={() => handlePressIn(item)}
-      onPressOut={handlePressOut}
-      activeOpacity={0.7}
-    >
-      {item.user.photos && item.user.photos.length > 0 && item.user.photos[0] ? (
-        <Image source={{ uri: item.user.photos[0] }} style={styles.matchItemImage} />
-      ) : (
-        <View style={styles.noPhotoContainer}>
-          <MaterialIcons name="person" size={24} color="#666" />
-        </View>
-      )}
-      <View style={styles.matchInfo}>
-        <View style={styles.matchItemHeader}>
-          <Text style={styles.matchItemName}>
-            {item.user.name}, {item.user.age}
-          </Text>
+  const renderMatch = ({ item }: { item: Match }) => {
+    const isPlaceholder = item.id === '__placeholder__';
+    
+    return (
+      <TouchableOpacity
+        style={[styles.matchItem, isPlaceholder && styles.invisibleMatch]}
+        onPress={isPlaceholder ? undefined : () => handleMatchPress(item)}
+        onPressIn={isPlaceholder ? undefined : () => handlePressIn(item)}
+        onPressOut={isPlaceholder ? undefined : handlePressOut}
+        activeOpacity={isPlaceholder ? 1 : 0.7}
+        disabled={isPlaceholder}
+      >
+        {item.user.photos && item.user.photos.length > 0 && item.user.photos[0] ? (
+          <Image source={{ uri: item.user.photos[0] }} style={styles.matchItemImage} />
+        ) : (
+          <View style={styles.noPhotoContainer}>
+            <MaterialIcons name="person" size={24} color="#666" />
+          </View>
+        )}
+        <View style={styles.matchInfo}>
+          <View style={styles.matchItemHeader}>
+            <Text style={styles.matchItemName}>
+              {item.user.name}, {item.user.age}
+            </Text>
+            {item.lastMessage && (
+              <Text style={styles.matchTime}>
+                {formatTime(item.lastMessage.timestamp)}
+              </Text>
+            )}
+          </View>
           {item.lastMessage && (
-            <Text style={styles.matchTime}>
-              {formatTime(item.lastMessage.timestamp)}
+            <Text style={styles.lastMessage} numberOfLines={1}>
+              {item.lastMessage.senderId === 'me' ? 'You: ' : ''}
+              {item.lastMessage.text}
             </Text>
           )}
+          {item.lastMessage && !item.lastMessage.isRead && item.lastMessage.senderId !== 'me' && (
+            <View style={styles.unreadIndicator} />
+          )}
         </View>
-        {item.lastMessage && (
-          <Text style={styles.lastMessage} numberOfLines={1}>
-            {item.lastMessage.senderId === 'me' ? 'You: ' : ''}
-            {item.lastMessage.text}
-          </Text>
-        )}
-        {item.lastMessage && !item.lastMessage.isRead && item.lastMessage.senderId !== 'me' && (
-          <View style={styles.unreadIndicator} />
-        )}
-      </View>
-    </TouchableOpacity>
-  );
+      </TouchableOpacity>
+    );
+  };
+
+  const handleMatchNotificationPress = () => {
+    if (newMatchData) {
+      setShowMatchNotification(false);
+      handleMatchPress(newMatchData);
+    }
+  };
+
+  const handleMatchNotificationDismiss = () => {
+    setShowMatchNotification(false);
+    setNewMatchData(null);
+  };
 
   return (
     <View style={styles.container}>
+      {/* New Match Notification */}
+      <MatchNotification
+        isVisible={showMatchNotification}
+        matchedUserName={newMatchData?.user?.name || ''}
+        onPress={handleMatchNotificationPress}
+        onDismiss={handleMatchNotificationDismiss}
+      />
+      
       {/* Match circles header */}
       <View style={styles.matchHeader}>
         <ScrollView 
@@ -424,26 +510,17 @@ const MatchesScreen: React.FC = () => {
         </View>
       </View>
       
-      {filteredMatches.length > 0 ? (
-        <FlatList
-          data={filteredMatches}
-          renderItem={renderMatch}
-          keyExtractor={(item) => item.id}
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.listContainer}
-          decelerationRate={0.8}
-          scrollEventThrottle={1}
-          removeClippedSubviews={true}
-          snapToAlignment="start"
-        />
-      ) : (
-        <View style={styles.emptyContainer}>
-          <Text style={styles.emptyTitle}>No matches yet</Text>
-          <Text style={styles.emptySubtitle}>
-            Start swiping to find your perfect match!
-          </Text>
-        </View>
-      )}
+      <FlatList
+        data={filteredMatches}
+        renderItem={renderMatch}
+        keyExtractor={(item) => item.id}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.listContainer}
+        decelerationRate={0.8}
+        scrollEventThrottle={1}
+        removeClippedSubviews={true}
+        snapToAlignment="start"
+      />
 
       {/* Profile Overlay */}
       {showProfileModal && selectedMatch && (
@@ -739,12 +816,13 @@ const styles = StyleSheet.create({
     resizeMode: 'cover',
   },
   listContainer: {
-    padding: 20,
     paddingTop: 16, // Decreased from 20 to 16 to move chat tiles up 4px
+    paddingBottom: 20,
+    paddingHorizontal: 15,
   },
   matchItem: {
     flexDirection: 'row',
-    backgroundColor: '#0F0F0F',
+    backgroundColor: '#222222',
     borderRadius: 15,
     padding: 15,
     marginBottom: 13,
@@ -756,6 +834,12 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 3.84,
     elevation: 5,
+  },
+  invisibleMatch: {
+    opacity: 0,
+    backgroundColor: 'transparent',
+    shadowOpacity: 0,
+    elevation: 0,
   },
        matchItemImage: {
     width: 54,

@@ -11,6 +11,8 @@ export class ChatService {
     text: string
   ) {
     try {
+      console.log('ChatService: Sending message to matchId:', matchId, 'senderId:', senderId, 'text:', text);
+      
       const { data, error } = await supabase
         .from('messages')
         .insert({
@@ -22,9 +24,12 @@ export class ChatService {
         .select()
         .single();
 
+      console.log('ChatService: Send message result:', { data, error });
+
       if (error) throw error;
       return { message: data, error: null };
     } catch (error) {
+      console.log('ChatService: Send message error:', error);
       return { message: null, error };
     }
   }
@@ -139,18 +144,7 @@ export class ChatService {
     try {
       const { data, error } = await supabase
         .from('messages')
-        .select(`
-          id,
-          text,
-          sender_id,
-          is_read,
-          created_at,
-          users!messages_sender_id_fkey (
-            id,
-            name,
-            photos
-          )
-        `)
+        .select('id, text, sender_id, is_read, created_at')
         .eq('match_id', matchId)
         .order('created_at', { ascending: true })
         .limit(limit);
@@ -163,11 +157,11 @@ export class ChatService {
         senderId: msg.sender_id,
         isRead: msg.is_read,
         timestamp: new Date(msg.created_at),
-        sender: msg.users,
       }));
 
       return { messages, error: null };
     } catch (error) {
+      console.error('ChatService: Get messages error:', error);
       return { messages: [], error };
     }
   }
@@ -186,7 +180,7 @@ export class ChatService {
           recipient_id,
           is_read,
           created_at,
-          users!direct_messages_sender_id_fkey (
+          users!sender_id (
             id,
             name,
             photos

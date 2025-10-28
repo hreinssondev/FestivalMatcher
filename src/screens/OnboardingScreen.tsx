@@ -31,6 +31,7 @@ const { width, height } = Dimensions.get('window');
 interface OnboardingData {
   name: string;
   age: string;
+  gender: string;
   festival: string[];
   ticketType: { [festival: string]: string };
   accommodation: { [festival: string]: string };
@@ -87,6 +88,7 @@ const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }) => {
   const [data, setData] = useState<OnboardingData>({
     name: '',
     age: '',
+    gender: '',
     festival: [],
     ticketType: {},
     accommodation: {},
@@ -503,6 +505,49 @@ const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }) => {
                 <Text style={styles.errorText}>You must be 18 or older to use this app</Text>
               )}
             </View>
+
+            {/* Gender */}
+            <View style={styles.fieldSection}>
+              <Text style={styles.fieldTitle}>Gender</Text>
+              <View style={styles.genderContainer}>
+                <TouchableOpacity
+                  style={[
+                    styles.genderOption,
+                    data.gender === 'male' && styles.genderOptionSelected
+                  ]}
+                  onPress={() => updateData('gender', 'male')}
+                >
+                  <Text style={[
+                    styles.genderText,
+                    data.gender === 'male' && styles.genderTextSelected
+                  ]}>Male</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.genderOption,
+                    data.gender === 'female' && styles.genderOptionSelected
+                  ]}
+                  onPress={() => updateData('gender', 'female')}
+                >
+                  <Text style={[
+                    styles.genderText,
+                    data.gender === 'female' && styles.genderTextSelected
+                  ]}>Female</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.genderOption,
+                    data.gender === 'other' && styles.genderOptionSelected
+                  ]}
+                  onPress={() => updateData('gender', 'other')}
+                >
+                  <Text style={[
+                    styles.genderText,
+                    data.gender === 'other' && styles.genderTextSelected
+                  ]}>Other</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
            </View>
          );
 
@@ -552,7 +597,7 @@ const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }) => {
                           setShowFestivalCustomInput(true);
                         }}
                       >
-                        <Text style={[styles.pickerOptionText, styles.customInputText]}>✏️ Write yourself</Text>
+                        <Text style={[styles.pickerOptionText, styles.customInputText]}>✏️ Write it</Text>
                         <MaterialIcons name="edit" size={20} color="#FF6B6B" />
                       </TouchableOpacity>
                       {festivals.map((festival) => (
@@ -665,7 +710,7 @@ const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }) => {
                             setShowTicketTypeCustomInput(true);
                           }}
                         >
-                          <Text style={[styles.pickerOptionText, styles.customInputText]}>✏️ Write yourself</Text>
+                          <Text style={[styles.pickerOptionText, styles.customInputText]}>✏️ Write it</Text>
                           <MaterialIcons name="edit" size={20} color="#FF6B6B" />
                         </TouchableOpacity>
                         {ticketTypes.map((ticketType) => (
@@ -770,7 +815,7 @@ const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onComplete }) => {
                             setShowAccommodationCustomInput(true);
                           }}
                         >
-                          <Text style={[styles.pickerOptionText, styles.customInputText]}>✏️ Write yourself</Text>
+                          <Text style={[styles.pickerOptionText, styles.customInputText]}>✏️ Write it</Text>
                           <MaterialIcons name="edit" size={20} color="#FF6B6B" />
                         </TouchableOpacity>
                         {accommodations.map((accommodation) => (
@@ -2162,6 +2207,34 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginTop: 16,
     textAlign: 'center',
+  },
+  genderContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  genderOption: {
+    flex: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 12,
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  genderOptionSelected: {
+    backgroundColor: '#FF6B6B',
+    borderColor: '#FF6B6B',
+  },
+  genderText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  genderTextSelected: {
+    color: '#FFFFFF',
+    fontWeight: 'bold',
   },
 
 });

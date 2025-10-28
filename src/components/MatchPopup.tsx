@@ -137,18 +137,6 @@ const MatchPopup: React.FC<MatchPopupProps> = ({
             <MaterialIcons name="celebration" size={50} color="#00CED1" style={styles.confetti3} />
           </Animated.View>
 
-          {/* Heart Icon */}
-          <Animated.View
-            style={[
-              styles.heartContainer,
-              {
-                transform: [{ scale: heartScaleAnim }],
-              },
-            ]}
-          >
-            <MaterialIcons name="favorite" size={80} color="#fff" />
-          </Animated.View>
-
           {/* Match Text */}
           <Animated.View
             style={[
@@ -159,9 +147,6 @@ const MatchPopup: React.FC<MatchPopupProps> = ({
             ]}
           >
             <Text style={styles.matchTitle}>It's a Match!</Text>
-            <Text style={styles.matchSubtitle}>
-              You and {matchedUser.name} liked each other
-            </Text>
           </Animated.View>
 
           {/* User Photos */}
@@ -182,21 +167,17 @@ const MatchPopup: React.FC<MatchPopupProps> = ({
 
           {/* Action Buttons */}
           <View style={styles.buttonContainer}>
+            <TouchableOpacity style={styles.keepSwipingButton} onPress={onClose}>
+              <MaterialIcons name="check" size={24} color="#fff" />
+              <Text style={styles.keepSwipingText}>Keep Swiping</Text>
+            </TouchableOpacity>
+
             <TouchableOpacity
               style={styles.sendMessageButton}
               onPress={onSendMessage}
             >
-              <LinearGradient
-                colors={['#ff4444', '#cc3333']}
-                style={styles.sendMessageGradient}
-              >
-                <MaterialIcons name="chat" size={24} color="#fff" />
-                <Text style={styles.sendMessageText}>Send Message</Text>
-              </LinearGradient>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.keepSwipingButton} onPress={onClose}>
-              <Text style={styles.keepSwipingText}>Keep Swiping</Text>
+              <MaterialIcons name="chat" size={24} color="#fff" />
+              <Text style={styles.sendMessageText}>Send Message</Text>
             </TouchableOpacity>
           </View>
         </LinearGradient>
@@ -222,7 +203,7 @@ const styles = StyleSheet.create({
     maxWidth: 350,
     borderRadius: 20,
     overflow: 'hidden',
-    marginTop: -10,
+    marginTop: 50,
   },
   gradient: {
     padding: 30,
@@ -251,12 +232,10 @@ const styles = StyleSheet.create({
     top: -40,
     left: 20,
   },
-  heartContainer: {
-    marginBottom: 20,
-  },
   textContainer: {
     alignItems: 'center',
-    marginBottom: 30,
+    marginBottom: 15,
+    marginTop: 2,
   },
   matchTitle: {
     fontSize: 32,
@@ -268,25 +247,19 @@ const styles = StyleSheet.create({
     textShadowOffset: { width: 1, height: 1 },
     textShadowRadius: 3,
   },
-  matchSubtitle: {
-    fontSize: 16,
-    color: '#fff',
-    textAlign: 'center',
-    opacity: 0.9,
-    lineHeight: 22,
-  },
   photosContainer: {
     flexDirection: 'row',
     justifyContent: 'center',
-    marginBottom: 30,
+    marginBottom: 58,
+    marginTop: 2,
   },
   photoContainer: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
+    width: 115,
+    height: 115,
+    borderRadius: 57.5,
     overflow: 'hidden',
     borderWidth: 3,
-    borderColor: '#fff',
+    borderColor: '#888888',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.3,
@@ -309,35 +282,40 @@ const styles = StyleSheet.create({
     gap: 15,
   },
   sendMessageButton: {
-    borderRadius: 25,
-    overflow: 'hidden',
-  },
-  sendMessageGradient: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 15,
-    paddingHorizontal: 30,
+    paddingVertical: 18,
+    paddingHorizontal: 60,
+    borderRadius: 28,
+    backgroundColor: 'rgba(200, 200, 200, 0.5)',
+    borderWidth: 1,
+    borderColor: 'rgba(200, 200, 200, 0.6)',
   },
   sendMessageText: {
     color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold',
+    fontSize: 17,
+    fontWeight: '600',
     marginLeft: 8,
+    textAlign: 'center',
   },
   keepSwipingButton: {
-    paddingVertical: 15,
-    paddingHorizontal: 30,
-    borderRadius: 25,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 18,
+    paddingHorizontal: 60,
+    borderRadius: 28,
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
+    borderColor: 'rgba(255, 255, 255, 0.2)',
   },
   keepSwipingText: {
     color: '#fff',
-    fontSize: 16,
+    fontSize: 17,
     fontWeight: '600',
     textAlign: 'center',
+    marginLeft: 8,
   },
 });
 

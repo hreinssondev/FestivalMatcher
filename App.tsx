@@ -26,6 +26,7 @@ import { OnboardingProvider, useOnboarding } from './src/context/OnboardingConte
 import { SettingsProvider } from './src/context/SettingsContext';
 import { PremiumProvider } from './src/context/PremiumContext';
 import { UserCountProvider } from './src/context/UserCountContext';
+import { TabBarProvider, useTabBar } from './src/context/TabBarContext';
 
 // Define navigation types
 export type RootStackParamList = {
@@ -35,7 +36,6 @@ export type RootStackParamList = {
   SupabaseTest: undefined;
   Onboarding: undefined;
   Settings: undefined;
-  EditProfile: undefined;
   CompactEdit: undefined;
   UserCountResults: {
     userCountResults: {
@@ -60,6 +60,8 @@ const Stack = createStackNavigator<RootStackParamList>();
 const Tab = createBottomTabNavigator<MainTabParamList>();
 
 function MainTabs() {
+  const { isTabBarVisible } = useTabBar();
+  
   return (
     <Tab.Navigator
       initialRouteName="Profile"
@@ -69,7 +71,7 @@ function MainTabs() {
         tabBarStyle: {
           backgroundColor: '#1A1A1A',
           borderTopWidth: 0,
-          height: 72, // Reduced by 4px more
+          height: 73, // Increased by 1px
           paddingBottom: 0, // Reduced by 1px
           paddingTop: 0,
           elevation: 0,
@@ -78,6 +80,7 @@ function MainTabs() {
           bottom: -1, // Moved down 1px
           left: -1, // Moved left 1px
           right: -1, // Moved right 1px
+          display: isTabBarVisible ? 'flex' : 'none', // Hide tab bar when match popup is visible
         },
         tabBarLabelStyle: {
           fontSize: 11,
@@ -259,7 +262,9 @@ export default function App() {
           <SettingsProvider>
             <PremiumProvider>
               <UserCountProvider>
-                <MainApp />
+                <TabBarProvider>
+                  <MainApp />
+                </TabBarProvider>
               </UserCountProvider>
             </PremiumProvider>
           </SettingsProvider>

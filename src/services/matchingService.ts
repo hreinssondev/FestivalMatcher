@@ -25,10 +25,8 @@ export class MatchingService {
         .single();
 
       if (error) {
-        console.log('recordSwipe: Error inserting swipe:', error);
         // If it's a duplicate swipe, that's okay - we can still check for matches
         if (error.code === '23505') {
-          console.log('recordSwipe: Duplicate swipe detected, continuing with match check...');
           // Try to get the existing swipe data
           const { data: existingSwipe } = await supabase
             .from('swipes')
@@ -39,7 +37,6 @@ export class MatchingService {
             .single();
           
           if (existingSwipe) {
-            console.log('recordSwipe: Found existing swipe, using it');
             data = existingSwipe;
           } else {
             throw error; // If we can't find the existing swipe, throw the error
@@ -51,21 +48,14 @@ export class MatchingService {
 
       // Check for match if this is a like
       if (action === 'like') {
-        console.log('Checking for match between:', swiperId, 'and', swipedId);
         try {
           const matchResult = await this.checkForMatch(swiperId, swipedId);
-          console.log('Match result:', matchResult);
           if (matchResult.isMatch) {
-            console.log('MATCH FOUND!');
             return { swipe: data, match: matchResult.match, error: null };
           }
         } catch (matchError: any) {
-          console.log('Match check error:', matchError);
-          
           // If it's a duplicate key error, handle it as an existing match
           if (matchError.code === '23505') {
-            console.log('DUPLICATE KEY ERROR - Match already exists, fetching it...');
-            
             // Fetch the existing match
             const { data: existingMatch, error: fetchError } = await supabase
               .from('matches')
@@ -74,13 +64,10 @@ export class MatchingService {
               .single();
 
             if (!fetchError && existingMatch) {
-              console.log('Found existing match:', existingMatch);
               return { swipe: data, match: existingMatch, error: null };
             }
           }
-          
           // If we can't handle the error, continue without match
-          console.log('Could not handle match error, continuing without match');
         }
       }
 
@@ -93,9 +80,7 @@ export class MatchingService {
   // Check if two users have matched (both liked each other)
   static async checkForMatch(user1Id: string, user2Id: string) {
     try {
-      console.log('checkForMatch: Checking if user2 liked user1');
       // Check if user2 has also liked user1
-      console.log('checkForMatch: Checking for swipe from', user2Id, 'to', user1Id);
       const { data: existingSwipe, error } = await supabase
         .from('swipes')
         .select('*')
@@ -104,16 +89,11 @@ export class MatchingService {
         .eq('action', 'like')
         .maybeSingle(); // Use maybeSingle instead of single to avoid errors
 
-      console.log('checkForMatch: Existing swipe result:', { existingSwipe, error });
-
       if (error) {
-        console.log('checkForMatch: Error checking for existing swipe:', error);
         throw error;
       }
 
       if (existingSwipe) {
-        console.log('checkForMatch: Match found! Checking if match record already exists...');
-        
         // Check if match already exists
         const { data: existingMatch, error: matchCheckError } = await supabase
           .from('matches')
@@ -122,12 +102,10 @@ export class MatchingService {
           .single();
 
         if (matchCheckError && matchCheckError.code !== 'PGRST116') {
-          console.log('checkForMatch: Error checking existing match:', matchCheckError);
           throw matchCheckError;
         }
 
         if (existingMatch) {
-          console.log('checkForMatch: Match already exists:', existingMatch);
           return { isMatch: true, match: existingMatch, error: null };
         }
 
@@ -142,18 +120,14 @@ export class MatchingService {
           .single();
 
         if (matchError) {
-          console.log('checkForMatch: Match creation error:', matchError);
           throw matchError; // Let the parent function handle it
         }
 
-        console.log('checkForMatch: Match created successfully:', match);
         return { isMatch: true, match, error: null };
       }
 
-      console.log('checkForMatch: No match found');
       return { isMatch: false, match: null, error: null };
     } catch (error) {
-      console.log('checkForMatch: Caught error:', error);
       return { isMatch: false, match: null, error };
     }
   }
@@ -201,7 +175,6 @@ export class MatchingService {
   // Get direct messages (matches created through direct messaging)
   static async getDirectMessages(userId: string) {
     try {
-      console.log('MatchingService: Getting direct messages for user:', userId);
       
       // Get matches where no mutual like exists (indicating it was a direct message match)
       const { data: allMatches, error: matchesError } = await supabase
@@ -225,7 +198,6 @@ export class MatchingService {
           .or(`and(swiper_id.eq.${userId},swiped_id.eq.${otherUserId},action.eq.like),and(swiper_id.eq.${otherUserId},swiped_id.eq.${userId},action.eq.like)`);
 
         if (swipesError) {
-          console.log('Error checking swipes for match:', match.id, swipesError);
           continue;
         }
 
@@ -242,8 +214,21 @@ export class MatchingService {
             .single();
 
           if (userError || !otherUser) {
-            console.log('Error fetching user for DM:', match.id, userError);
             continue;
+          }
+
+          // Ensure photos is always an array
+          let photos = [];
+          if (otherUser.photos) {
+            if (Array.isArray(otherUser.photos)) {
+              photos = otherUser.photos;
+            } else if (typeof otherUser.photos === 'string') {
+              try {
+                photos = JSON.parse(otherUser.photos);
+              } catch {
+                photos = [];
+              }
+            }
           }
           
           // Get the latest message for this match
@@ -259,13 +244,13 @@ export class MatchingService {
             id: match.id,
             user: {
               id: otherUser.id,
-              name: otherUser.name,
-              age: otherUser.age,
-              festival: otherUser.festival,
-              ticket_type: otherUser.ticket_type,
-              accommodation_type: otherUser.accommodation_type,
-              interests: otherUser.interests,
-              photos: otherUser.photos,
+              name: otherUser.name || '',
+              age: otherUser.age || 18,
+              festival: otherUser.festival || '',
+              ticket_type: otherUser.ticket_type || '',
+              accommodation_type: otherUser.accommodation_type || '',
+              interests: Array.isArray(otherUser.interests) ? otherUser.interests : (otherUser.interests || []),
+              photos: photos,
               last_active: otherUser.last_active
             },
             lastMessage: lastMessage ? {
@@ -280,7 +265,6 @@ export class MatchingService {
         }
       }
 
-      console.log('MatchingService: Found direct message matches:', directMessageMatches.length);
       return { messages: directMessageMatches, error: null };
     } catch (error) {
       console.error('MatchingService: Error getting direct messages:', error);
@@ -313,7 +297,6 @@ export class MatchingService {
           .or(`and(swiper_id.eq.${userId},swiped_id.eq.${otherUserId},action.eq.like),and(swiper_id.eq.${otherUserId},swiped_id.eq.${userId},action.eq.like)`);
 
         if (swipesError) {
-          console.log('Error checking swipes for match:', match.id, swipesError);
           continue;
         }
 
@@ -330,8 +313,21 @@ export class MatchingService {
             .single();
 
           if (userError || !otherUser) {
-            console.log('Error fetching user for match:', match.id, userError);
             continue;
+          }
+
+          // Ensure photos is always an array
+          let photos = [];
+          if (otherUser.photos) {
+            if (Array.isArray(otherUser.photos)) {
+              photos = otherUser.photos;
+            } else if (typeof otherUser.photos === 'string') {
+              try {
+                photos = JSON.parse(otherUser.photos);
+              } catch {
+                photos = [];
+              }
+            }
           }
 
           // Get the latest message for this match
@@ -348,13 +344,13 @@ export class MatchingService {
             matchedAt: match.matched_at,
             user: {
               id: otherUser.id,
-              name: otherUser.name,
-              age: otherUser.age,
-              festival: otherUser.festival,
-              ticket_type: otherUser.ticket_type,
-              accommodation_type: otherUser.accommodation_type,
-              interests: otherUser.interests,
-              photos: otherUser.photos,
+              name: otherUser.name || '',
+              age: otherUser.age || 18,
+              festival: otherUser.festival || '',
+              ticket_type: otherUser.ticket_type || '',
+              accommodation_type: otherUser.accommodation_type || '',
+              interests: Array.isArray(otherUser.interests) ? otherUser.interests : (otherUser.interests || []),
+              photos: photos,
               last_active: otherUser.last_active
             },
             lastMessage: lastMessage ? {
@@ -369,7 +365,6 @@ export class MatchingService {
         }
       }
 
-      console.log('MatchingService: Found real matches:', realMatches.length);
       return { matches: realMatches, error: null };
     } catch (error) {
       return { matches: [], error };
@@ -396,8 +391,6 @@ export class MatchingService {
   // Convert a direct message to a regular match by creating a swipe
   static async convertDMToMatch(accepterId: string, senderId: string) {
     try {
-      console.log('Converting DM to match:', { accepterId, senderId });
-      
       // Create a swipe from the accepter to the sender (like action)
       const { data: swipe, error: swipeError } = await supabase
         .from('swipes')
@@ -410,11 +403,8 @@ export class MatchingService {
         .single();
 
       if (swipeError && swipeError.code !== '23505') { // Ignore duplicate key errors
-        console.log('Error creating swipe for DM conversion:', swipeError);
         throw swipeError;
       }
-
-      console.log('DM converted to match successfully');
       return { success: true, error: null };
     } catch (error) {
       console.error('Error converting DM to match:', error);
@@ -519,7 +509,6 @@ export class MatchingService {
         .neq('id', '00000000-0000-0000-0000-000000000000'); // Delete all swipes
 
       if (error) throw error;
-      console.log('All swipes cleared for testing');
       return { success: true, error: null };
     } catch (error) {
       console.error('Error clearing swipes:', error);
@@ -540,12 +529,14 @@ export class MatchingService {
         .select('swiped_id')
         .eq('swiper_id', userId);
 
-      if (swipedError) throw swipedError;
+      if (swipedError) {
+        console.error('MatchingService: Error fetching swipes:', swipedError);
+        throw swipedError;
+      }
 
-      const swipedIds = swipedUsers.map(swipe => swipe.swiped_id);
-      // Removed console.log statements to prevent excessive logging
-      // console.log('Current user ID:', userId);
-      // console.log('Already swiped on:', swipedIds);
+      const swipedIds = swipedUsers?.map(swipe => swipe.swiped_id) || [];
+
+      let allUsers: any[] = [];
 
       // First try to get users with location data
       const { data: usersWithLocation, error: locationError } = await supabase
@@ -553,51 +544,74 @@ export class MatchingService {
         .select('*')
         .not('location', 'is', null);
 
-      if (locationError) throw locationError;
+      if (locationError) {
+        // Fallback to all users if location query fails
+      } else {
+        allUsers = usersWithLocation || [];
+      }
 
-      let allUsers = usersWithLocation;
-
-      // If no users with location, get all users
-      if (usersWithLocation.length === 0) {
+      // If no users with location (error or empty result), get all users
+      if (allUsers.length === 0) {
         const { data: allUsersData, error: allUsersError } = await supabase
           .from('users')
           .select('*');
 
-        if (allUsersError) throw allUsersError;
-        allUsers = allUsersData;
+        if (allUsersError) {
+          console.error('MatchingService: Error fetching all users:', allUsersError);
+          throw allUsersError;
+        }
+        allUsers = allUsersData || [];
       }
 
       // Calculate distances and filter out already swiped users and self
       const usersWithDistance = allUsers
         .filter((user: any) => {
-          // Explicitly filter out the current user by ID
-          if (user.id === userId) {
+          // Explicitly filter out the current user by ID (using strict comparison)
+          if (String(user.id) === String(userId)) {
             return false;
           }
           
           // Filter out already swiped users
-          const isSwiped = swipedIds.includes(user.id);
+          const isSwiped = swipedIds.some(id => String(id) === String(user.id));
           return !isSwiped;
         })
-        .map((user: any) => ({
-          id: user.id,
-          name: user.name,
-          age: user.age,
-          festival: user.festival,
-          ticketType: user.ticket_type, // Map from snake_case to camelCase
-          accommodationType: user.accommodation_type, // Map from snake_case to camelCase
-          photos: user.photos || [],
-          interests: user.interests || [],
-          lastSeen: user.last_active,
-          distance: user.location ? 
-            LocationService.calculateDistance(
-              userLocation.latitude,
-              userLocation.longitude,
-              user.location.latitude,
-              user.location.longitude
-            ) : 
-            999 // High distance for users without location
-        }))
+        .map((user: any) => {
+          // Ensure photos is always an array
+          let photos = [];
+          if (user.photos) {
+            if (Array.isArray(user.photos)) {
+              photos = user.photos;
+            } else if (typeof user.photos === 'string') {
+              // Try to parse if it's a JSON string
+              try {
+                photos = JSON.parse(user.photos);
+              } catch {
+                photos = [];
+              }
+            }
+          }
+          
+          return {
+            id: user.id,
+            name: user.name || '',
+            age: user.age || 18,
+            gender: user.gender || 'Other',
+            festival: user.festival || '',
+            ticketType: user.ticket_type || '', // Map from snake_case to camelCase
+            accommodationType: user.accommodation_type || '', // Map from snake_case to camelCase
+            photos: photos,
+            interests: Array.isArray(user.interests) ? user.interests : (user.interests || []),
+            lastSeen: user.last_active,
+            distance: user.location ? 
+              LocationService.calculateDistance(
+                userLocation.latitude,
+                userLocation.longitude,
+                user.location.latitude,
+                user.location.longitude
+              ) : 
+              999 // High distance for users without location
+          };
+        })
         .sort((a, b) => a.distance - b.distance) // Sort by distance, closest first
         .slice(0, limit);
 
@@ -605,8 +619,8 @@ export class MatchingService {
         users: usersWithDistance, 
         error: null 
       };
-    } catch (error) {
-      console.error('Error in getAllUsersByDistance:', error);
+    } catch (error: any) {
+      console.error('MatchingService: Error in getAllUsersByDistance:', error?.message || error);
       return { users: [], error };
     }
   }
@@ -665,7 +679,6 @@ export class MatchingService {
   // Clear all matches and messages (for testing purposes)
   static async clearAllMatchesAndMessages() {
     try {
-      console.log('Clearing all matches and messages...');
       
       // Delete all messages first (due to foreign key constraints)
       const { error: messagesError } = await supabase
@@ -676,7 +689,6 @@ export class MatchingService {
       if (messagesError) {
         console.error('Error deleting messages:', messagesError);
       } else {
-        console.log('All messages deleted successfully');
       }
 
       // Delete all direct messages if table exists
@@ -689,10 +701,8 @@ export class MatchingService {
         if (dmError && dmError.code !== '42P01') { // Ignore table not found error
           console.error('Error deleting direct messages:', dmError);
         } else {
-          console.log('All direct messages deleted successfully');
         }
       } catch (dmError) {
-        console.log('Direct messages table not found, skipping...');
       }
 
       // Delete all matches
@@ -704,7 +714,6 @@ export class MatchingService {
       if (matchesError) {
         console.error('Error deleting matches:', matchesError);
       } else {
-        console.log('All matches deleted successfully');
       }
 
       // Delete all swipes
@@ -716,10 +725,8 @@ export class MatchingService {
       if (swipesError) {
         console.error('Error deleting swipes:', swipesError);
       } else {
-        console.log('All swipes deleted successfully');
       }
 
-      console.log('All matches, messages, and swipes cleared successfully!');
       return { success: true, error: null };
     } catch (error) {
       console.error('Error clearing matches and messages:', error);
@@ -764,7 +771,6 @@ export class MatchingService {
   // Remove a specific connection/match between two users
   static async removeConnection(user1Id: string, user2Id: string) {
     try {
-      console.log('Removing connection between:', user1Id, 'and', user2Id);
       
       // Delete all messages between these users
       const { error: messagesError } = await supabase
@@ -787,7 +793,6 @@ export class MatchingService {
           console.error('Error deleting direct messages:', dmError);
         }
       } catch (dmError) {
-        console.log('Direct messages table not found, skipping...');
       }
 
       // Delete the match
@@ -810,11 +815,84 @@ export class MatchingService {
         console.error('Error deleting swipes:', swipesError);
       }
 
-      console.log('Connection removed successfully!');
       return { success: true, error: null };
     } catch (error) {
       console.error('Error removing connection:', error);
       return { success: false, error };
     }
+  }
+
+  // Subscribe to new matches for a user in real-time
+  static subscribeToMatches(
+    userId: string,
+    callback: (newMatch: any) => void
+  ) {
+    
+    const channel = supabase
+      .channel(`matches:${userId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'matches',
+          filter: `or(user1_id.eq.${userId},user2_id.eq.${userId})`,
+        },
+        async (payload) => {
+          const newMatch = payload.new as any;
+          
+          // Determine the other user's ID
+          const otherUserId = newMatch.user1_id === userId ? newMatch.user2_id : newMatch.user1_id;
+          
+          // Fetch the other user's data
+          const { data: otherUser, error: userError } = await supabase
+            .from('users')
+            .select('*')
+            .eq('id', otherUserId)
+            .single();
+
+          if (!userError && otherUser) {
+            // Ensure photos is always an array
+            let photos = [];
+            if (otherUser.photos) {
+              if (Array.isArray(otherUser.photos)) {
+                photos = otherUser.photos;
+              } else if (typeof otherUser.photos === 'string') {
+                try {
+                  photos = JSON.parse(otherUser.photos);
+                } catch {
+                  photos = [];
+                }
+              }
+            }
+
+            callback({
+              id: newMatch.id,
+              matchedAt: new Date(newMatch.matched_at || new Date()),
+              user: {
+                id: otherUser.id,
+                name: otherUser.name || '',
+                age: otherUser.age || 18,
+                gender: otherUser.gender || 'Other',
+                festival: otherUser.festival || '',
+                ticketType: otherUser.ticket_type || '',
+                accommodationType: otherUser.accommodation_type || '',
+                interests: Array.isArray(otherUser.interests) ? otherUser.interests : (otherUser.interests || []),
+                photos: photos,
+                lastSeen: otherUser.last_active || new Date().toISOString()
+              },
+              lastMessage: null,
+              isRealMatch: true
+            });
+          }
+        }
+      )
+      .subscribe();
+
+    return {
+      unsubscribe: () => {
+        supabase.removeChannel(channel);
+      }
+    };
   }
 } 

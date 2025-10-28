@@ -29,6 +29,7 @@ import { useUserCount } from '../context/UserCountContext';
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { RootStackParamList } from '../../App';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const { width, height } = Dimensions.get('window');
 
@@ -67,6 +68,7 @@ const MapScreen: React.FC = () => {
   const [showPingSettings, setShowPingSettings] = useState(false);
   const [pingTarget, setPingTarget] = useState('All'); // 'All' or 'Matches'
   const [showPingControls, setShowPingControls] = useState(false);
+  const locationUpdateIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const [showUserCountDetails, setShowUserCountDetails] = useState(false);
   const [showUserCountPopup, setShowUserCountPopup] = useState(false);
   const [showPremiumPopup, setShowPremiumPopup] = useState(false);
@@ -239,7 +241,51 @@ const MapScreen: React.FC = () => {
 
       let currentLocation = await Location.getCurrentPositionAsync({});
       setLocation(currentLocation);
+
+      // Check if location sharing is enabled from ProfileScreen (only on initial mount)
+      const locationSharingEnabled = await AsyncStorage.getItem('location_sharing_enabled');
+      if (locationSharingEnabled === 'true' && !isPinging) {
+        // Automatically enable pinging
+        setIsPinging(true);
+        setShowPingControls(true);
+        setPingInterval(3600); // 1 hour
+        
+        // Set up interval to update location every hour
+        const updateLocationToDatabase = async () => {
+          try {
+            const result = await DeviceAuthService.getCurrentUser();
+            if (result.user) {
+              const newLocation = await Location.getCurrentPositionAsync({});
+              await LocationService.updateUserLocation(result.user.id, newLocation);
+              setLocation(newLocation);
+            }
+          } catch (error) {
+            console.error('Error updating location:', error);
+          }
+        };
+
+        // Update immediately
+        await updateLocationToDatabase();
+        
+        // Set up interval to update every hour (3600000 ms)
+        if (locationUpdateIntervalRef.current) {
+          clearInterval(locationUpdateIntervalRef.current);
+        }
+        
+        locationUpdateIntervalRef.current = setInterval(async () => {
+          await updateLocationToDatabase();
+        }, 3600000); // 1 hour
+      }
     })();
+  }, []);
+
+  // Cleanup interval on unmount
+  useEffect(() => {
+    return () => {
+      if (locationUpdateIntervalRef.current) {
+        clearInterval(locationUpdateIntervalRef.current);
+      }
+    };
   }, []);
 
   // Center map on user's location when it becomes available
@@ -487,9 +533,9 @@ const MapScreen: React.FC = () => {
     }
   };
 
-  // Listen for when user returns from results screen
+  // Listen for when user returns from results screen or navigates to MapScreen
   useEffect(() => {
-    const unsubscribe = navigation.addListener('focus', () => {
+    const unsubscribe = navigation.addListener('focus', async () => {
       // When returning to MapScreen, hide the user count details
       setShowUserCountDetails(false);
       // When returning to MapScreen, ensure we have results to show
@@ -497,6 +543,7 @@ const MapScreen: React.FC = () => {
         // If user has feature but no results, trigger a search
         searchNearbyUsers();
       }
+
     });
 
     return unsubscribe;
@@ -506,7 +553,7 @@ const MapScreen: React.FC = () => {
     searchNearbyUsers();
   };
 
-  const handlePingLocation = () => {
+  const handlePingLocation = async () => {
     if (isPinging) {
       // If already pinging, show controls or stop pinging
       if (showPingControls) {
@@ -514,17 +561,147 @@ const MapScreen: React.FC = () => {
         console.log('Stop pinging your location - Are you sure you want to stop pinging?');
         setIsPinging(false);
         setShowPingControls(false);
+        
+        // Clear location sharing enabled flag
+        await AsyncStorage.removeItem('location_sharing_enabled');
+        
+        // Clear location update interval
+        if (locationUpdateIntervalRef.current) {
+          clearInterval(locationUpdateIntervalRef.current);
+          locationUpdateIntervalRef.current = null;
+        }
+        
         console.log('Pinging Stopped - Your location is no longer being shared with other users.');
       } else {
         // Show controls
         setShowPingControls(true);
       }
     } else {
-      // Start pinging
-      console.log(`Ping your location to others - Are you sure? This will ping your location to other users even if you have not matched yet. Pings will update every ${pingInterval < 60 ? `${pingInterval} seconds` : pingInterval < 3600 ? `${Math.floor(pingInterval / 60)} minutes` : `${Math.floor(pingInterval / 3600)} hour`}.`);
-      setIsPinging(true);
-      setShowPingControls(true);
-      console.log(`Location Pinged! Your location is now visible to other users. Your ping will update automatically every ${pingInterval < 60 ? `${pingInterval} seconds` : pingInterval < 3600 ? `${Math.floor(pingInterval / 60)} minutes` : `${Math.floor(pingInterval / 3600)} hour`}.`);
+      // Start pinging - Always show location permission dialog
+      try {
+        console.log('Requesting location permissions for pinging...');
+        
+        // First check current permission status
+        let { status: currentStatus } = await Location.getForegroundPermissionsAsync();
+        
+        if (currentStatus === 'granted') {
+          // If already granted, show a custom alert to inform user
+          Alert.alert(
+            'Location Access',
+            'You are about to share your location to other users on the map, proceed?',
+            [
+              {
+                text: 'Cancel',
+                style: 'cancel'
+              },
+              {
+                text: 'Proceed',
+                onPress: async () => {
+                  // Get current location and start pinging
+                  let currentLocation = await Location.getCurrentPositionAsync({});
+                  setLocation(currentLocation);
+                  
+                  console.log(`Ping your location to others - Are you sure? This will ping your location to other users even if you have not matched yet. Pings will update every ${pingInterval < 60 ? `${pingInterval} seconds` : pingInterval < 3600 ? `${Math.floor(pingInterval / 60)} minutes` : `${Math.floor(pingInterval / 3600)} hour`}.`);
+                  setIsPinging(true);
+                  setShowPingControls(true);
+                  
+                  // Save location sharing enabled state
+                  await AsyncStorage.setItem('location_sharing_enabled', 'true');
+                  
+                  // Set up interval to update location
+                  const updateLocationToDatabase = async () => {
+                    try {
+                      const result = await DeviceAuthService.getCurrentUser();
+                      if (result.user) {
+                        const newLocation = await Location.getCurrentPositionAsync({});
+                        await LocationService.updateUserLocation(result.user.id, newLocation);
+                        setLocation(newLocation);
+                      }
+                    } catch (error) {
+                      console.error('Error updating location:', error);
+                    }
+                  };
+                  
+                  // Update immediately
+                  await updateLocationToDatabase();
+                  
+                  // Set up interval to update every hour
+                  if (locationUpdateIntervalRef.current) {
+                    clearInterval(locationUpdateIntervalRef.current);
+                  }
+                  
+                  locationUpdateIntervalRef.current = setInterval(async () => {
+                    await updateLocationToDatabase();
+                  }, 3600000); // 1 hour
+                  
+                  console.log(`Location Pinged! Your location is now visible to other users. Your ping will update automatically every ${pingInterval < 60 ? `${pingInterval} seconds` : pingInterval < 3600 ? `${Math.floor(pingInterval / 60)} minutes` : `${Math.floor(pingInterval / 3600)} hour`}.`);
+                }
+              }
+            ]
+          );
+          return;
+        }
+        
+        // If not granted, request permissions (this will show native popup)
+        let { status } = await Location.requestForegroundPermissionsAsync();
+        
+        if (status !== 'granted') {
+          setErrorMsg('Permission to access location was denied. Cannot start pinging.');
+          Alert.alert(
+            'Location Permission Required',
+            'This app needs location permission to ping your location to other users. Please enable location access in Settings.',
+            [{ text: 'OK' }]
+          );
+          return;
+        }
+
+        // Get current location to ensure we have it
+        let currentLocation = await Location.getCurrentPositionAsync({});
+        setLocation(currentLocation);
+        
+        console.log(`Ping your location to others - Are you sure? This will ping your location to other users even if you have not matched yet. Pings will update every ${pingInterval < 60 ? `${pingInterval} seconds` : pingInterval < 3600 ? `${Math.floor(pingInterval / 60)} minutes` : `${Math.floor(pingInterval / 3600)} hour`}.`);
+        setIsPinging(true);
+        setShowPingControls(true);
+        
+        // Save location sharing enabled state
+        await AsyncStorage.setItem('location_sharing_enabled', 'true');
+        
+        // Set up interval to update location
+        const updateLocationToDatabase = async () => {
+          try {
+            const result = await DeviceAuthService.getCurrentUser();
+            if (result.user) {
+              const newLocation = await Location.getCurrentPositionAsync({});
+              await LocationService.updateUserLocation(result.user.id, newLocation);
+              setLocation(newLocation);
+            }
+          } catch (error) {
+            console.error('Error updating location:', error);
+          }
+        };
+        
+        // Update immediately
+        await updateLocationToDatabase();
+        
+        // Set up interval to update every hour
+        if (locationUpdateIntervalRef.current) {
+          clearInterval(locationUpdateIntervalRef.current);
+        }
+        
+        locationUpdateIntervalRef.current = setInterval(async () => {
+          await updateLocationToDatabase();
+        }, 3600000); // 1 hour
+        
+        console.log(`Location Pinged! Your location is now visible to other users. Your ping will update automatically every ${pingInterval < 60 ? `${pingInterval} seconds` : pingInterval < 3600 ? `${Math.floor(pingInterval / 60)} minutes` : `${Math.floor(pingInterval / 3600)} hour`}.`);
+      } catch (error) {
+        console.error('Error requesting location permission:', error);
+        setErrorMsg('Failed to get location permission');
+        Alert.alert(
+          'Location Error',
+          'Failed to get your location. Please check your location settings.',
+          [{ text: 'OK' }]
+        );
+      }
     }
   };
 

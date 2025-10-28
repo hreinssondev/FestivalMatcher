@@ -16,10 +16,12 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MatchingService } from '../services/matchingService';
 import { DeviceAuthService } from '../services/deviceAuthService';
 import { useProfile } from '../context/ProfileContext';
 import { usePremium } from '../context/PremiumContext';
+import { useTabBar } from '../context/TabBarContext';
 import { User } from '../types/index';
 import { MainTabParamList } from '../../App';
 import MatchPopup from '../components/MatchPopup';
@@ -34,6 +36,9 @@ type SwipeScreenNavigationProp = BottomTabNavigationProp<MainTabParamList, 'Swip
 const SwipeScreen = () => {
   const navigation = useNavigation<SwipeScreenNavigationProp>();
   const { isPremium } = usePremium();
+  const { profileData } = useProfile();
+  const { setTabBarVisible } = useTabBar();
+  const insets = useSafeAreaInsets();
   const [currentUserIndex, setCurrentUserIndex] = useState(0);
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
@@ -93,17 +98,23 @@ const SwipeScreen = () => {
 
   const loadPotentialMatches = async () => {
     try {
+      setIsLoading(true);
       const deviceUserId = await DeviceAuthService.getDeviceUserId();
+      
       const userLocation = { latitude: 0, longitude: 0 }; // Default location
       const result = await MatchingService.getAllUsersByDistance(deviceUserId, userLocation);
       
       if (result.error) {
-        console.error('Error loading matches:', result.error);
+        console.error('SwipeScreen: Error loading matches:', result.error);
+        setPotentialMatches([]);
         return;
       }
       
-      // Additional filter to ensure current user is never shown
-      const filteredUsers = result.users.filter(user => user.id !== deviceUserId);
+      // Additional filter to ensure current user is never shown (double-check with strict comparison)
+      const filteredUsers = result.users.filter(user => {
+        const isSelf = String(user.id) === String(deviceUserId);
+        return !isSelf;
+      });
       
       setPotentialMatches(filteredUsers);
       
@@ -114,7 +125,8 @@ const SwipeScreen = () => {
         }
       });
     } catch (error) {
-      console.error('Error loading potential matches:', error);
+      console.error('SwipeScreen: Error loading potential matches:', error);
+      setPotentialMatches([]);
     } finally {
       setIsLoading(false);
     }
@@ -131,38 +143,44 @@ const SwipeScreen = () => {
     }, [])
   );
 
+  // Hide/show tab bar based on match popup visibility
+  useEffect(() => {
+    setTabBarVisible(!showMatchPopup);
+  }, [showMatchPopup, setTabBarVisible]);
+
+  // Cleanup: ensure tab bar is visible when component unmounts
+  useEffect(() => {
+    return () => {
+      setTabBarVisible(true);
+    };
+  }, [setTabBarVisible]);
+
   const handleLike = async () => {
     if (!currentUser) return;
     
     try {
       const deviceUserId = await DeviceAuthService.getDeviceUserId();
-      console.log('SwipeScreen: REAL LIKE - About to record swipe for user:', currentUser.name, 'deviceUserId:', deviceUserId);
       
       // First, try to record the swipe (ignore errors)
       try {
         await MatchingService.recordSwipe(deviceUserId, currentUser.id, 'like');
-        console.log('SwipeScreen: Swipe recorded successfully');
       } catch (swipeError: any) {
-        console.log('SwipeScreen: Swipe error (continuing anyway):', swipeError);
+        // Ignore swipe errors, continue anyway
       }
       
       // Now check if there's a match (either new or existing)
       try {
         // Check if these users are already matched
         const existingMatch = await MatchingService.checkIfMatched(deviceUserId, currentUser.id);
-        console.log('SwipeScreen: Match check result:', existingMatch);
         
         if (existingMatch.isMatched) {
-          console.log('SwipeScreen: MATCH FOUND! Showing popup for:', currentUser.name);
           setMatchedUser(currentUser);
           setShowMatchPopup(true);
           return; // Don't proceed to next card yet
         }
       } catch (matchError: any) {
-        console.log('SwipeScreen: Match check error:', matchError);
+        // Ignore match check errors, continue anyway
       }
-      
-      console.log('SwipeScreen: No match, proceeding to next card');
       
       // Add fade-out effect
       setIsFading(true);
@@ -195,25 +213,18 @@ const SwipeScreen = () => {
 
   // Test function to force show popup
   const testMatchPopup = () => {
-    console.log('SwipeScreen: Testing match popup');
-    console.log('SwipeScreen: Current user:', currentUser);
-    console.log('SwipeScreen: showMatchPopup state:', showMatchPopup);
-    console.log('SwipeScreen: matchedUser state:', matchedUser);
     if (currentUser) {
       setMatchedUser(currentUser);
       setShowMatchPopup(true);
-      console.log('SwipeScreen: Set matchedUser and showMatchPopup to true');
     }
   };
 
   // Test function to simulate a real match
   const testRealMatch = async () => {
-    console.log('SwipeScreen: Testing real match simulation');
     if (!currentUser) return;
     
     try {
       const deviceUserId = await DeviceAuthService.getDeviceUserId();
-      console.log('SwipeScreen: Simulating match for user:', currentUser.name);
       
       // Simulate a match result
       const mockMatchResult = {
@@ -222,12 +233,9 @@ const SwipeScreen = () => {
         error: null
       };
       
-      console.log('SwipeScreen: Mock match result:', mockMatchResult);
       if (mockMatchResult.match) {
-        console.log('SwipeScreen: MOCK MATCH DETECTED! Showing popup for:', currentUser.name);
         setMatchedUser(currentUser);
         setShowMatchPopup(true);
-        console.log('SwipeScreen: Set matchedUser and showMatchPopup from mock');
       }
     } catch (error) {
       console.error('Error in test real match:', error);
@@ -336,7 +344,6 @@ const SwipeScreen = () => {
         .single();
 
       if (existingMatch) {
-        console.log('SwipeScreen: Found existing match:', existingMatch.id);
         // Navigate directly to chat screen with keyboard ready
         navigation.navigate('Chat', {
           matchId: existingMatch.id,
@@ -356,7 +363,6 @@ const SwipeScreen = () => {
           .single();
 
         if (newMatch) {
-          console.log('SwipeScreen: Created new match:', newMatch.id);
           // Navigate directly to chat screen with keyboard ready
           navigation.navigate('Chat', {
             matchId: newMatch.id,
@@ -388,8 +394,6 @@ const SwipeScreen = () => {
       return;
     }
     
-    console.log('SwipeScreen: Direct message to:', currentUser.name);
-    
     // Create a match first (like regular chat) but mark it as a direct message
     const createDirectMessageMatch = async () => {
       try {
@@ -406,16 +410,36 @@ const SwipeScreen = () => {
           .single();
 
         if (error && error.code !== '23505') { // Ignore duplicate key errors
-          console.log('SwipeScreen: Error creating direct message match:', error);
           // Try to find existing match
           const { data: existingMatch } = await supabase
             .from('matches')
             .select('*')
             .or(`and(user1_id.eq.${deviceUserId},user2_id.eq.${currentUser.id}),and(user1_id.eq.${currentUser.id},user2_id.eq.${deviceUserId})`)
-            .single();
+            .maybeSingle();
           
           if (existingMatch) {
-            console.log('SwipeScreen: Found existing match:', existingMatch.id);
+            navigation.navigate('Chat', {
+              matchId: existingMatch.id,
+              matchName: currentUser.name,
+              matchPhoto: currentUser.photos?.[0] || null,
+              isDirectMessage: true
+            });
+            return;
+          }
+          
+          // If no existing match found, throw error to be caught by catch block
+          throw new Error('Failed to create match and no existing match found');
+        }
+
+        // Handle duplicate key error (match already exists) - try to find it
+        if (error && error.code === '23505') {
+          const { data: existingMatch } = await supabase
+            .from('matches')
+            .select('*')
+            .or(`and(user1_id.eq.${deviceUserId},user2_id.eq.${currentUser.id}),and(user1_id.eq.${currentUser.id},user2_id.eq.${deviceUserId})`)
+            .maybeSingle();
+          
+          if (existingMatch) {
             navigation.navigate('Chat', {
               matchId: existingMatch.id,
               matchName: currentUser.name,
@@ -426,15 +450,16 @@ const SwipeScreen = () => {
           }
         }
 
-        // Navigate to chat screen with the new or existing match
+        // Navigate to chat screen with the new match
         if (match?.id) {
-          console.log('SwipeScreen: Created new match:', match.id);
           navigation.navigate('Chat', {
             matchId: match.id,
             matchName: currentUser.name,
             matchPhoto: currentUser.photos?.[0] || null,
             isDirectMessage: true
           });
+        } else {
+          throw new Error('Match creation failed: no match ID returned');
         }
       } catch (error) {
         console.error('SwipeScreen: Error in direct message setup:', error);
@@ -483,10 +508,10 @@ const SwipeScreen = () => {
   return (
     <View style={styles.container}>
       {/* Floating bar background - extends from under profile card */}
-      <View style={styles.floatingBarBackground} />
+      <View style={[styles.floatingBarBackground, { top: insets.top - 20 }]} />
       
       {/* Floating bar above card */}
-      <View style={styles.floatingBar}>
+      <View style={[styles.floatingBar, { top: insets.top + 20 }]}>
         <TouchableOpacity 
           style={styles.floatingBarContent}
           onPress={handleFloatingBarPress}
@@ -624,7 +649,11 @@ const SwipeScreen = () => {
                                 <Text style={styles.festivalChipText}>{festivalName}</Text>
                                 {hasPremiumTicket && (
                                   <View style={styles.premiumStarContainer}>
-                                    <MaterialIcons name="star" size={16} color="#FFFFFF" />
+                                    <MaterialIcons 
+                                      name="star" 
+                                      size={16} 
+                                      color="#333333" 
+                                    />
                                   </View>
                                 )}
                               </View>
@@ -683,31 +712,37 @@ const SwipeScreen = () => {
       </View>
 
       {/* Like Buttons - Same Position as ProfileScreen Action Buttons */}
-      <View style={styles.actionButtons}>
-        <TouchableOpacity 
-          style={styles.actionButton}
-          onPress={handleDislike}
-          disabled={!currentUser || currentUserIndex >= potentialMatches.length}
-        >
-          <MaterialIcons name="close" size={20} color="rgba(255, 255, 255, 0.82)" />
-        </TouchableOpacity>
-        
-        <TouchableOpacity 
-          style={styles.actionButton}
-          onPress={handleDirectMessage}
-          disabled={!currentUser || currentUserIndex >= potentialMatches.length}
-        >
-          <MaterialIcons name="chat" size={20} color="rgba(255, 255, 255, 0.82)" />
-        </TouchableOpacity>
-        
-        <TouchableOpacity 
-          style={styles.actionButton}
-          onPress={handleLike}
-          disabled={!currentUser || currentUserIndex >= potentialMatches.length}
-        >
-          <MaterialIcons name="favorite" size={20} color="rgba(255, 255, 255, 0.82)" />
-        </TouchableOpacity>
-      </View>
+      {!showMatchPopup && (
+        <View style={styles.actionButtons}>
+          <TouchableOpacity 
+            style={styles.actionButton}
+            onPress={handleDislike}
+            disabled={!currentUser || currentUserIndex >= potentialMatches.length}
+          >
+            <MaterialIcons name="close" size={22} color="rgba(255, 255, 255, 0.82)" />
+          </TouchableOpacity>
+          
+          <TouchableOpacity 
+            style={styles.actionButton}
+            onPress={handleDirectMessage}
+            disabled={!currentUser || currentUserIndex >= potentialMatches.length}
+          >
+            <MaterialIcons name="chat" size={22} color="rgba(255, 255, 255, 0.82)" />
+          </TouchableOpacity>
+          
+          <TouchableOpacity 
+            style={styles.actionButton}
+            onPress={handleLike}
+            disabled={!currentUser || currentUserIndex >= potentialMatches.length}
+          >
+              <MaterialIcons 
+                name="favorite" 
+                size={22} 
+                color="rgba(255, 255, 255, 0.82)" 
+              />
+          </TouchableOpacity>
+        </View>
+      )}
 
       {/* Profile Modal */}
       {currentUser && (
@@ -1225,7 +1260,6 @@ const styles = StyleSheet.create({
   },
   floatingBarBackground: {
     position: 'absolute',
-    top: 73.7, // Moved down 0.7px
     left: 21.25,
     right: 21.25,
     height: 75, // Extended downward - now 75px tall
@@ -1236,7 +1270,6 @@ const styles = StyleSheet.create({
   },
   floatingBar: {
     position: 'absolute',
-    top: 97.7, // Moved down to match ProfileScreen
     left: 20,
     right: 20,
     backgroundColor: 'transparent',
@@ -1345,7 +1378,7 @@ const styles = StyleSheet.create({
   },
   actionButtons: {
     position: 'absolute',
-    bottom: 90,
+    bottom: 92,
     left: 0,
     right: 0,
     flexDirection: 'row',
@@ -1462,8 +1495,8 @@ const styles = StyleSheet.create({
   },
   premiumStarContainer: {
     position: 'absolute',
-    top: -5,
-    right: -5,
+    top: -3.5,
+    right: -3.5,
     zIndex: 15,
   },
   infoChip: {

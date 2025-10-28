@@ -4,6 +4,7 @@ import { DeviceAuthService } from '../services/deviceAuthService';
 interface ProfileData {
   name: string;
   age: number;
+  gender: string;
   festival: string;
   ticketType: string;
   accommodation: string;
@@ -11,6 +12,7 @@ interface ProfileData {
   photos: string[];
   profilePhotoIndex: number;
   interests: string[];
+  instagram?: string;
 }
 
 interface ProfileContextType {
@@ -37,6 +39,7 @@ export const ProfileProvider: React.FC<ProfileProviderProps> = ({ children }) =>
   const [profileData, setProfileData] = useState<ProfileData>({
     name: 'Hlynur',
     age: 25,
+    gender: 'male',
     festival: 'Defqon.1',
     ticketType: 'General Admission',
     accommodation: 'Friends Camp',
@@ -67,6 +70,7 @@ export const ProfileProvider: React.FC<ProfileProviderProps> = ({ children }) =>
           photos: result.user.photos || [],
           profilePhotoIndex: 0,
           interests: result.user.interests || [],
+          instagram: result.user.instagram || '',
         });
         console.log('ProfileData set with interests:', result.user.interests || []);
       } else {
@@ -99,6 +103,7 @@ export const ProfileProvider: React.FC<ProfileProviderProps> = ({ children }) =>
       if (data.accommodation !== undefined) dbData.accommodation_type = data.accommodation;
       if (data.interests !== undefined) dbData.interests = data.interests;
       if (data.photos !== undefined) dbData.photos = data.photos;
+      if (data.instagram !== undefined) dbData.instagram = data.instagram;
 
       console.log('Saving to database:', dbData);
       const result = await DeviceAuthService.updateUserProfile(dbData);

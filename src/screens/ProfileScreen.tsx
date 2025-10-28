@@ -16,6 +16,7 @@ import { PanGestureHandler, State } from 'react-native-gesture-handler';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation } from '@react-navigation/native';
 import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MainTabParamList } from '../../App';
 import { useProfile } from '../context/ProfileContext';
 import { useOnboarding } from '../context/OnboardingContext';
@@ -26,6 +27,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { MatchingService } from '../services/matchingService';
 import { PhotoService } from '../services/photoService';
 import { DeviceAuthService } from '../services/deviceAuthService';
+import { InstagramService } from '../services/instagramService';
+import * as Location from 'expo-location';
+import { LocationService } from '../services/locationService';
 
 const { width, height } = Dimensions.get('window');
 
@@ -36,6 +40,7 @@ type ProfileScreenNavigationProp = BottomTabNavigationProp<MainTabParamList, 'Pr
 const ProfileScreen: React.FC = () => {
   const navigation = useNavigation<ProfileScreenNavigationProp>();
   const { profileData, updateProfile, refreshProfile } = useProfile();
+  const insets = useSafeAreaInsets();
   
   // Debug logging
 
@@ -54,9 +59,75 @@ const ProfileScreen: React.FC = () => {
   const [editValue, setEditValue] = useState('');
   const [showEditInput, setShowEditInput] = useState(false);
   const [floatingBarTextIndex, setFloatingBarTextIndex] = useState(0); // Start with location
+  const [locationName, setLocationName] = useState<string>('Loading...');
+  const [isLocationSharingEnabled, setIsLocationSharingEnabled] = useState(false);
+  const locationUpdateIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Fetch user's location and reverse geocode it
+  useEffect(() => {
+    const fetchLocation = async () => {
+      try {
+        // Get user data from database to get their location
+        const result = await DeviceAuthService.getCurrentUser();
+        if (result.user?.location) {
+          const { latitude, longitude } = result.user.location;
+          
+          // Reverse geocode to get location name
+          const reverseGeocode = await Location.reverseGeocodeAsync({
+            latitude,
+            longitude,
+          });
+
+          if (reverseGeocode && reverseGeocode.length > 0) {
+            const address = reverseGeocode[0];
+            // Use city, region, or country as fallback
+            const name = address.city || address.region || address.country || 'Unknown Location';
+            setLocationName(name);
+          } else {
+            setLocationName('Unknown Location');
+          }
+        } else {
+          // Try to get current location if not in database
+          const { status } = await Location.requestForegroundPermissionsAsync();
+          if (status === 'granted') {
+            const location = await Location.getCurrentPositionAsync({});
+            const reverseGeocode = await Location.reverseGeocodeAsync({
+              latitude: location.coords.latitude,
+              longitude: location.coords.longitude,
+            });
+
+            if (reverseGeocode && reverseGeocode.length > 0) {
+              const address = reverseGeocode[0];
+              const name = address.city || address.region || address.country || 'Unknown Location';
+              setLocationName(name);
+            } else {
+              setLocationName('Unknown Location');
+            }
+          } else {
+            setLocationName('Location unavailable');
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching location:', error);
+        setLocationName('Location unavailable');
+      }
+    };
+
+    fetchLocation();
+  }, []);
+
+  // Cleanup interval on unmount
+  useEffect(() => {
+    return () => {
+      if (locationUpdateIntervalRef.current) {
+        clearInterval(locationUpdateIntervalRef.current);
+      }
+    };
+  }, []);
+
   const floatingBarTexts = [
-    { icon: "location-on" as const, text: "Biddinghuizen • 6 min ago" },
-    { icon: "location-on" as const, text: `Show on Map ?` }
+    { icon: "location-on" as const, text: `${locationName} • Now` },
+    { icon: "location-on" as const, text: `Show to other users?` }
   ];
 
   // Welcome modal state
@@ -207,11 +278,103 @@ const ProfileScreen: React.FC = () => {
 
   const handleFloatingBarPress = () => {
     if (floatingBarTextIndex === 0) {
-      // First tap: show "Show on Map ?" text
+      // First tap: show "Show to other users?" text
       setFloatingBarTextIndex(1);
     } else {
-      // Second tap: navigate to Map tab
-      navigation.navigate('Map');
+      // Second tap: show confirmation dialog
+      Alert.alert(
+        'Share Location',
+        'Allow other users to see your location on the map? Your location will update every hour.',
+        [
+          {
+            text: 'Cancel',
+            style: 'cancel',
+            onPress: () => {
+              // Reset to first text
+              setFloatingBarTextIndex(0);
+            }
+          },
+          {
+            text: 'Yes, Share',
+            onPress: async () => {
+              // Request location permission
+              const { status } = await Location.requestForegroundPermissionsAsync();
+              if (status !== 'granted') {
+                Alert.alert(
+                  'Permission Required',
+                  'Location permission is required to share your location with other users.',
+                  [{ text: 'OK' }]
+                );
+                setFloatingBarTextIndex(0);
+                return;
+              }
+
+              // Start location sharing
+              setIsLocationSharingEnabled(true);
+              
+              // Save location sharing enabled state to AsyncStorage
+              await AsyncStorage.setItem('location_sharing_enabled', 'true');
+              
+              // Update location immediately
+              await updateLocationToDatabase();
+              
+              // Set up interval to update every hour (3600000 ms)
+              if (locationUpdateIntervalRef.current) {
+                clearInterval(locationUpdateIntervalRef.current);
+              }
+              
+              locationUpdateIntervalRef.current = setInterval(async () => {
+                await updateLocationToDatabase();
+              }, 3600000); // 1 hour
+
+              // Reset to first text
+              setFloatingBarTextIndex(0);
+              
+              Alert.alert(
+                'Location Sharing Enabled',
+                'Your location will now be visible to other users and will update every hour.',
+                [{ text: 'OK' }]
+              );
+            }
+          }
+        ]
+      );
+    }
+  };
+
+  const updateLocationToDatabase = async () => {
+    try {
+      const location = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+
+      const result = await DeviceAuthService.getCurrentUser();
+      if (result.user) {
+        const { error } = await LocationService.updateUserLocation(
+          result.user.id,
+          location
+        );
+
+        if (error) {
+          console.error('Error updating location:', error);
+        } else {
+          console.log('Location updated successfully');
+          
+          // Update local location name
+          const reverseGeocode = await Location.reverseGeocodeAsync({
+            latitude: location.coords.latitude,
+            longitude: location.coords.longitude,
+          });
+
+          if (reverseGeocode && reverseGeocode.length > 0) {
+            const address = reverseGeocode[0];
+            const name = address.city || address.region || address.country || 'Unknown Location';
+            setLocationName(name);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error in updateLocationToDatabase:', error);
     }
   };
 
@@ -382,10 +545,10 @@ const ProfileScreen: React.FC = () => {
     return (
     <View style={styles.container}>
       {/* Floating bar background - extends from under profile card */}
-      <View style={styles.floatingBarBackground} />
+      <View style={[styles.floatingBarBackground, { top: insets.top - 20 }]} />
       
       {/* Floating bar above card */}
-      <View style={styles.floatingBar}>
+      <View style={[styles.floatingBar, { top: insets.top + 20 }]}>
         <TouchableOpacity 
           style={styles.floatingBarContent}
           onPress={handleFloatingBarPress}
@@ -518,15 +681,16 @@ const ProfileScreen: React.FC = () => {
                         
                         return (
                           <>
-                            {/* Empty spaces for positions 1 and 2 */}
-                            <View style={styles.festivalChip} />
-                            <View style={styles.festivalChip} />
-                            {/* Single festival in position 3 */}
+                            {/* Single festival */}
                             <View style={styles.festivalChip}>
                               <Text style={styles.festivalChipText}>{realFestivals[0].trim()}</Text>
                               {hasPremiumTicket && (
                                 <View style={styles.premiumStarContainer}>
-                                  <MaterialIcons name="star" size={16} color="#FFFFFF" />
+                                  <MaterialIcons 
+                                    name="star" 
+                                    size={18} 
+                                    color="#333333" 
+                                  />
                                 </View>
                               )}
                             </View>
@@ -555,7 +719,11 @@ const ProfileScreen: React.FC = () => {
                                 <Text style={styles.festivalChipText}>{festivalName}</Text>
                                 {hasPremiumTicket && (
                                   <View style={styles.premiumStarContainer}>
-                                    <MaterialIcons name="star" size={16} color="#FFFFFF" />
+                                    <MaterialIcons 
+                                    name="star" 
+                                    size={18} 
+                                    color="#333333" 
+                                  />
                                   </View>
                                 )}
                               </View>
@@ -588,6 +756,20 @@ const ProfileScreen: React.FC = () => {
                     return null;
                   })()}
 
+                  {profileData.instagram && (
+                    <View style={{ width: '100%', alignItems: 'center', marginTop: 8 }}>
+                      <TouchableOpacity
+                        style={styles.instagramInProfile}
+                        onPress={() => {
+                          InstagramService.openProfile(profileData.instagram!);
+                        }}
+                      >
+                        <MaterialIcons name="camera-alt" size={18} color="#FF6B6B" style={{ marginRight: 6 }} />
+                        <Text style={styles.instagramInProfileText}>@{profileData.instagram}</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+
                 </View>
               </ScrollView>
             </Animated.View>
@@ -613,12 +795,6 @@ const ProfileScreen: React.FC = () => {
         </View>
       </View>
 
-      {/* Edit Profile Button - overlaid on card */}
-      <TouchableOpacity style={styles.editProfileButton} onPress={() => navigation.navigate('EditProfile' as any)}>
-        <Text style={styles.editProfileButtonText}>
-          Edit Profile
-        </Text>
-      </TouchableOpacity>
 
       {/* Action Buttons - Same as SwipeScreen */}
       <View style={styles.actionButtons}>
@@ -633,7 +809,12 @@ const ProfileScreen: React.FC = () => {
           style={[styles.actionButton, isEditing && styles.editButtonActive]}
           onPress={handleEditPress}
         >
-          <MaterialIcons name="edit" size={20} color={isEditing ? "#666666" : "rgba(255, 255, 255, 0.82)"} />
+          <MaterialIcons 
+            name="edit" 
+            size={24} 
+            color={isEditing ? "#666666" : "rgba(255, 255, 255, 0.82)"} 
+            style={isEditing ? {} : {}}
+          />
         </TouchableOpacity>
 
         <TouchableOpacity 
@@ -867,7 +1048,7 @@ const styles = StyleSheet.create({
     flexDirection: 'column',
     alignItems: 'flex-start',
     marginBottom: 5,
-    marginTop: -40, // Adjusted to match profile page height
+    marginTop: -45, // Adjusted to match profile page height
   },
   nameAgeRow: {
     flexDirection: 'row',
@@ -1059,6 +1240,40 @@ const styles = StyleSheet.create({
     lineHeight: 21,
     fontWeight: 'normal',
   },
+  instagramInProfile: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    marginTop: 12,
+    marginBottom: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    backgroundColor: 'rgba(255, 107, 107, 0.1)',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#FF6B6B',
+  },
+  instagramInProfileText: {
+    fontSize: 14,
+    color: '#FF6B6B',
+    fontWeight: '500',
+  },
+  instagramInNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    backgroundColor: 'rgba(255, 107, 107, 0.1)',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#FF6B6B',
+    marginLeft: 8,
+  },
+  instagramInNameRowText: {
+    fontSize: 12,
+    color: '#FF6B6B',
+    fontWeight: '500',
+  },
   bioQuote: {
     fontSize: 17,
     color: '#FFFFFF',
@@ -1148,7 +1363,6 @@ const styles = StyleSheet.create({
   },
   floatingBarBackground: {
     position: 'absolute',
-    top: 73.7, // Moved down 0.7px
     left: 21.25,
     right: 21.25,
     height: 75, // Extended downward - now 75px tall
@@ -1159,7 +1373,6 @@ const styles = StyleSheet.create({
   },
   floatingBar: {
     position: 'absolute',
-    top: 97.7, // Moved up 5px (102.7 - 5)
     left: 20,
     right: 20,
     backgroundColor: 'transparent',
@@ -1386,7 +1599,7 @@ const styles = StyleSheet.create({
   },
   actionButtons: {
     position: 'absolute',
-    bottom: 90,
+    bottom: 92,
     left: 0,
     right: 0,
     flexDirection: 'row',
@@ -1559,8 +1772,8 @@ const styles = StyleSheet.create({
   },
   premiumStarContainer: {
     position: 'absolute',
-    top: -5,
-    right: -5,
+    top: -3.5,
+    right: -3.5,
     zIndex: 15,
   },
   infoChip: {

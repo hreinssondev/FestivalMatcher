@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS users (
   accommodation_type TEXT NOT NULL,
   interests TEXT[] DEFAULT '{}',
   photos TEXT[] DEFAULT '{}',
+  instagram TEXT,
   location GEOGRAPHY(POINT, 4326),
   last_active TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),

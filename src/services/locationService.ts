@@ -8,16 +8,16 @@ export class LocationService {
   // Update user's current location
   static async updateUserLocation(userId: string, location: Location.LocationObject) {
     try {
-      const { error } = await supabase
-        .from('users')
-        .update({
-          location: {
-            latitude: location.coords.latitude,
-            longitude: location.coords.longitude,
-          },
-          last_active: new Date().toISOString(),
-        })
-        .eq('id', userId);
+      const longitude = location.coords.longitude;
+      const latitude = location.coords.latitude;
+
+      // Use RPC function to update location with PostGIS geography
+      // This properly formats the location using ST_MakePoint
+      const { error } = await supabase.rpc('update_user_location', {
+        user_id: userId,
+        user_lng: longitude,
+        user_lat: latitude,
+      });
 
       if (error) throw error;
       return { error: null };

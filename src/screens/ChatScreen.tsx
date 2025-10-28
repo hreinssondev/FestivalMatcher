@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
 import {
   View,
   Text,
@@ -6,6 +6,7 @@ import {
   FlatList,
   TextInput,
   TouchableOpacity,
+  TouchableWithoutFeedback,
   KeyboardAvoidingView,
   Platform,
   Image,
@@ -16,7 +17,7 @@ import {
   Dimensions,
   Keyboard,
 } from 'react-native';
-import { useRoute, RouteProp, useNavigation } from '@react-navigation/native';
+import { useRoute, RouteProp, useNavigation, useFocusEffect } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { PanGestureHandler, State } from 'react-native-gesture-handler';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -97,6 +98,20 @@ const ChatScreen: React.FC = () => {
 
   const { matchId, matchName, matchPhoto, openKeyboard } = route.params;
 
+  // Function to load messages
+  const loadMessages = React.useCallback(async () => {
+    try {
+      const messagesResult = await ChatService.getMessages(matchId);
+      if (messagesResult.error) {
+        setMessages([]);
+      } else {
+        setMessages(messagesResult.messages);
+      }
+    } catch (error) {
+      console.error('Error loading messages:', error);
+    }
+  }, [matchId]);
+
   // Load chat data from Supabase
   useEffect(() => {
     const loadChatData = async () => {
@@ -107,24 +122,28 @@ const ChatScreen: React.FC = () => {
         const deviceUserId = await DeviceAuthService.getDeviceUserId();
         setCurrentUserId(deviceUserId);
         
-        // Load messages (same for both regular and direct messages)
-        const messagesResult = await ChatService.getMessages(matchId);
-        if (messagesResult.error) {
-          console.log('No existing messages, starting fresh');
-          setMessages([]);
-        } else {
-          setMessages(messagesResult.messages);
-        }
+        // Load messages
+        await loadMessages();
+        
+        // Scroll to bottom after initial load
+        setTimeout(() => {
+          const scrollToBottom = () => {
+            flatListRef.current?.scrollToOffset({ offset: 999999, animated: false });
+          };
+          scrollToBottom();
+          setTimeout(scrollToBottom, 100);
+        }, 200);
         
         // Create chat partner user object
         const chatPartnerUser: User = {
           id: matchId, // Using matchId as user ID for now
           name: matchName,
           age: 25, // Default age - you might want to get this from the match data
+          gender: 'Other', // Default gender
           festival: 'Unknown Festival', // Default - you might want to get this from the match data
           ticketType: 'Unknown', // Default - you might want to get this from the match data
           accommodationType: 'Unknown', // Default - you might want to get this from the match data
-          photos: [matchPhoto], // Use the photo from route params
+          photos: matchPhoto ? [matchPhoto] : [], // Use the photo from route params
           interests: [], // Default empty array
           lastSeen: new Date().toISOString(),
         };
@@ -139,14 +158,37 @@ const ChatScreen: React.FC = () => {
     };
 
     loadChatData();
-  }, [matchId]);
+  }, [matchId, loadMessages]);
 
-  useEffect(() => {
-    // Scroll to bottom when messages change
-    setTimeout(() => {
-      flatListRef.current?.scrollToEnd({ animated: true });
-    }, 100);
-  }, [messages]);
+  // Reload messages when screen comes into focus and poll every 5 seconds
+  useFocusEffect(
+    React.useCallback(() => {
+      // Load messages immediately when screen comes into focus
+      loadMessages();
+      
+      // Scroll to bottom when entering chat (after messages load)
+      setTimeout(() => {
+        const scrollToBottom = () => {
+          flatListRef.current?.scrollToOffset({ offset: 999999, animated: false });
+        };
+        scrollToBottom();
+        setTimeout(scrollToBottom, 100);
+        setTimeout(scrollToBottom, 300);
+      }, 200);
+      
+      // Poll every 5 seconds for new messages
+      const pollInterval = setInterval(() => {
+        loadMessages();
+      }, 5000); // 5 seconds
+      
+      // Cleanup interval when screen loses focus
+      return () => {
+        if (pollInterval) {
+          clearInterval(pollInterval);
+        }
+      };
+    }, [loadMessages])
+  );
 
   // Focus text input when component mounts to show keyboard
   useEffect(() => {
@@ -222,7 +264,6 @@ const ChatScreen: React.FC = () => {
   const [deleteTargetUser, setDeleteTargetUser] = useState<User | null>(null);
 
   const handleRemoveConnection = async () => {
-    console.log('Long press detected! handleRemoveConnection called');
     if (chatUser) {
       setDeleteTargetUser(chatUser);
       setShowDeletePopup(true);
@@ -260,16 +301,13 @@ const ChatScreen: React.FC = () => {
   };
 
   const handlePressIn = () => {
-    console.log('Press in detected');
     const timer = setTimeout(() => {
-      console.log('Long press timer triggered!');
       handleRemoveConnection();
     }, 500);
     setLongPressTimer(timer);
   };
 
   const handlePressOut = () => {
-    console.log('Press out detected');
     if (longPressTimer) {
       clearTimeout(longPressTimer);
       setLongPressTimer(null);
@@ -284,31 +322,45 @@ const ChatScreen: React.FC = () => {
   };
 
   const sendMessage = async () => {
-    if (newMessage.trim()) {
-      try {
-        const deviceUserId = await DeviceAuthService.getDeviceUserId();
-        
-        // Send message (same for both regular and direct messages)
-        const sendResult = await ChatService.sendMessage(matchId, deviceUserId, newMessage);
-        
-        if (sendResult.error) {
-          Alert.alert('Error', 'Failed to send message');
-          return;
-        }
-        
-        setNewMessage('');
-        
-        // Reload messages after sending
-        const updatedMessagesResult = await ChatService.getMessages(matchId);
-        
-        if (updatedMessagesResult.error) {
-          setMessages([]);
-        } else {
-          setMessages(updatedMessagesResult.messages);
-        }
-      } catch (error) {
+    const messageText = newMessage.trim();
+    if (!messageText) return;
+    
+    try {
+      const deviceUserId = await DeviceAuthService.getDeviceUserId();
+      
+      // Clear input immediately for better UX
+      setNewMessage('');
+      
+      // Optimistic update: add message immediately to UI
+      const tempMessage: Message = {
+        id: `temp-${Date.now()}`,
+        text: messageText,
+        senderId: deviceUserId,
+        timestamp: new Date(),
+        isRead: false,
+      };
+      setMessages(prev => [...prev, tempMessage]);
+      
+      // Send message to server
+      const sendResult = await ChatService.sendMessage(matchId, deviceUserId, messageText);
+      
+      if (sendResult.error) {
+        // Remove optimistic message on error
+        setMessages(prev => prev.filter(msg => msg.id !== tempMessage.id));
         Alert.alert('Error', 'Failed to send message');
+        return;
       }
+      
+      // Reload messages after sending (with small delay to ensure DB commit)
+      setTimeout(() => {
+        loadMessages();
+      }, 500);
+      
+    } catch (error) {
+      console.error('ChatScreen: Send message error:', error);
+      // Remove optimistic message on error
+      setMessages(prev => prev.filter(msg => !msg.id.startsWith('temp-')));
+      Alert.alert('Error', 'Failed to send message');
     }
   };
 
@@ -391,14 +443,27 @@ const ChatScreen: React.FC = () => {
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={0}
       >
-        <FlatList
-        ref={flatListRef}
-        data={messages}
-        renderItem={renderMessage}
-        keyExtractor={(item) => item.id}
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.messagesList}
-      />
+        <View style={{ flex: 1 }}>
+          <FlatList
+            ref={flatListRef}
+            data={messages}
+            renderItem={renderMessage}
+            keyExtractor={(item) => item.id}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.messagesList}
+            keyboardShouldPersistTaps="handled"
+            scrollEnabled={true}
+            nestedScrollEnabled={true}
+            getItemLayout={(data, index) => ({
+              length: 100,
+              offset: 100 * index,
+              index,
+            })}
+          />
+          <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+            <View style={StyleSheet.absoluteFill} pointerEvents="box-none" />
+          </TouchableWithoutFeedback>
+        </View>
       
       <View style={styles.inputContainer}>
         <TextInput
@@ -411,6 +476,27 @@ const ChatScreen: React.FC = () => {
           multiline
           maxLength={500}
           keyboardAppearance="dark"
+          onFocus={() => {
+            // Instant scroll to bottom on focus - scroll multiple times to ensure it catches keyboard
+            const scrollToBottom = () => {
+              if (messages.length > 0) {
+                try {
+                  flatListRef.current?.scrollToIndex({ 
+                    index: messages.length - 1, 
+                    animated: false,
+                    viewPosition: 1
+                  });
+                } catch (e) {
+                  flatListRef.current?.scrollToOffset({ offset: 999999, animated: false });
+                }
+              }
+            };
+            
+            // Scroll immediately, then twice more to account for keyboard layout changes
+            scrollToBottom();
+            setTimeout(scrollToBottom, 50);
+            setTimeout(scrollToBottom, 150);
+          }}
         />
         <TouchableOpacity
           style={[
@@ -682,7 +768,7 @@ const ChatScreen: React.FC = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#000000',
+    backgroundColor: '#1A1A1A',
   },
   loadingContainer: {
     flex: 1,
@@ -697,10 +783,11 @@ const styles = StyleSheet.create({
   },
   messagesList: {
     paddingVertical: 10,
+    paddingHorizontal: 10,
   },
   messageContainer: {
-    marginVertical: 2,
-    marginHorizontal: 15,
+    marginVertical: 3,
+    marginHorizontal: 5,
     flexDirection: 'row',
   },
   myMessageContainer: {
@@ -710,22 +797,29 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-start',
   },
   messageBubble: {
-    maxWidth: '70%',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    maxWidth: '75%',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
     borderRadius: 18,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.15,
+    shadowRadius: 2,
+    elevation: 2,
   },
   myMessageBubble: {
-    backgroundColor: '#333333',
+    backgroundColor: '#cc3333',
     borderBottomRightRadius: 4,
   },
   theirMessageBubble: {
-    backgroundColor: '#333333',
+    backgroundColor: '#2a2a2a',
     borderBottomLeftRadius: 4,
   },
   messageText: {
-    fontSize: 16,
-    lineHeight: 20,
+    fontSize: 17,
+    lineHeight: 22,
+    fontWeight: '400',
+    fontFamily: Platform.OS === 'ios' ? 'System' : 'Roboto',
   },
   myMessageText: {
     color: '#FFFFFF',
@@ -734,38 +828,43 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
   },
   messageTime: {
-    fontSize: 12,
-    alignSelf: 'flex-end',
+    fontSize: 11,
+    marginTop: 4,
+    fontWeight: '400',
   },
   myMessageTime: {
-    color: 'rgba(255, 255, 255, 0.7)',
+    color: '#FFFFFF',
   },
   theirMessageTime: {
-    color: '#CCCCCC',
+    color: '#FFFFFF',
   },
   inputContainer: {
     flexDirection: 'row',
-    padding: 15,
-    backgroundColor: '#000000',
-    alignItems: 'flex-end',
+    paddingHorizontal: 8,
+    paddingVertical: 10,
+    paddingBottom: Platform.OS === 'ios' ? 10 : 10,
+    backgroundColor: '#1A1A1A',
+    alignItems: 'center',
   },
   textInput: {
     flex: 1,
-    borderWidth: 1,
-    borderColor: '#333333',
+    borderWidth: 0,
     borderRadius: 20,
-    paddingHorizontal: 15,
+    paddingHorizontal: 16,
     paddingVertical: 10,
     marginRight: 10,
     maxHeight: 100,
-    fontSize: 16,
+    fontSize: 17,
     backgroundColor: '#333333',
     color: '#FFFFFF',
+    fontFamily: Platform.OS === 'ios' ? 'System' : 'Roboto',
+    fontWeight: '400',
   },
   sendButton: {
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 20,
+    minWidth: 50,
+    paddingHorizontal: 16,
+    height: 36,
+    borderRadius: 18,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -777,19 +876,19 @@ const styles = StyleSheet.create({
   },
   sendButtonText: {
     color: '#fff',
-    fontSize: 16,
+    fontSize: 17,
     fontWeight: '600',
+    fontFamily: Platform.OS === 'ios' ? 'System' : 'Roboto',
   },
   // Top bar styles
   topBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#1A1A1A',
+    backgroundColor: '#151515',
     paddingTop: 50,
     paddingBottom: 15,
     paddingHorizontal: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: '#333333',
+    borderBottomWidth: 0,
   },
 
   profileSection: {
@@ -801,8 +900,7 @@ const styles = StyleSheet.create({
     height: 50,
     borderRadius: 25,
     overflow: 'hidden',
-    borderWidth: 2,
-    borderColor: '#ff6b6b',
+    borderWidth: 0,
   },
   profileImage: {
     width: '100%',
